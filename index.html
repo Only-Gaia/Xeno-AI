@@ -140,13 +140,11 @@ form.bar button{padding:0 20px;background:var(--blue);color:#fff;border-radius:1
    CONFIGURAZIONE  (modifica solo questa parte)
    ============================================================ */
 const CONFIG = {
-  // URL del tuo backend (es. la tua app Replit). Lascia "" per la modalità demo.
+  // URL del tuo backend su Render, es. "https://xeno-backend.onrender.com"
+  // Lascia "" per la modalità demo.
   API_URL: "",
-  // Firebase: crea un progetto su console.firebase.google.com, abilita
-  // Authentication > Email/Password, Google, GitHub, Apple e incolla qui i dati.
+  // Non serve più Firebase: l'accesso al backend usa il codice ACCESS_CODE.
   FIREBASE: null
-  /* esempio:
-  FIREBASE: { apiKey:"...", authDomain:"...", projectId:"...", appId:"..." } */
 };
 
 CONFIG.API_URL = CONFIG.API_URL.replace(/\/+$/, ""); // toglie lo "/" finale
@@ -208,7 +206,7 @@ function enter(u){
   loadChats(); newConversation(true);
 }
 function leave(){
-  user=null; localStorage.removeItem("tink_user");
+  user=null; localStorage.removeItem("tink_user"); localStorage.removeItem("xeno_code");
   $("app").classList.add("hidden"); $("auth").classList.remove("hidden");
 }
 
@@ -272,6 +270,27 @@ function bubble(m){
 }
 
 /* ============================================================
+   CODICE DI ACCESSO
+   Il backend accetta solo chi manda il codice ACCESS_CODE.
+   Il browser lo chiede una volta e lo ricorda; se è sbagliato
+   (errore 401) viene dimenticato e richiesto di nuovo.
+   ============================================================ */
+async function authHeaders(){
+  let c=localStorage.getItem("xeno_code");
+  if(!c){
+    c=(prompt("Codice di accesso:")||"").trim();
+    if(c) localStorage.setItem("xeno_code",c);
+  }
+  return c ? {Authorization:"Bearer "+c} : {};
+}
+function check401(r){
+  if(r.status===401){
+    localStorage.removeItem("xeno_code");
+    throw new Error("codice di accesso sbagliato, riprova");
+  }
+}
+
+/* ============================================================
    CHAT
    ============================================================ */
 async function askAI(){
@@ -286,6 +305,7 @@ async function askAI(){
     method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},
     body:JSON.stringify({messages:msgs,mode:codeMode?"code":"chat",userId:user.id})
   });
+  check401(r);
   if(!r.ok) throw new Error("Errore del server ("+r.status+")");
   return (await r.json()).reply;
 }
@@ -347,17 +367,12 @@ $("goOnline").onclick=()=>{
   refreshBotState();
 };
 
-async function authHeaders(){
-  // invia il "biglietto" Firebase così il backend sa chi sei
-  if(fb && fb.currentUser) return {Authorization:"Bearer "+await fb.currentUser.getIdToken()};
-  return {};
-}
-
 async function refreshBotState(){
   const el=$("botState"); el.textContent="";
   if(!CONFIG.API_URL) return;
   try{
     const r=await fetch(CONFIG.API_URL+"/api/bot-status",{headers:await authHeaders()});
+    if(r.status===401){ localStorage.removeItem("xeno_code"); el.textContent="Codice di accesso sbagliato, riapri questa finestra."; return; }
     const d=await r.json();
     el.textContent = r.ok
       ? "Stato del bot: "+d.state+(d.error?" ("+d.error+")":"")
@@ -370,6 +385,7 @@ $("stopBot").onclick=async()=>{
   if(!confirm("Spegnere il bot e cancellare il token salvato?")) return;
   try{
     const r=await fetch(CONFIG.API_URL+"/api/stop-bot",{method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},body:"{}"});
+    if(r.status===401){ localStorage.removeItem("xeno_code"); $("botState").textContent="Codice di accesso sbagliato, riprova."; return; }
     const d=await r.json();
     $("botState").textContent=d.message||d.error||"";
   }catch(e){ $("botState").textContent="Non sono riuscito a fermare il bot."; }
@@ -389,6 +405,7 @@ $("publish").onclick=async()=>{
       method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},
       body:JSON.stringify({platform,token,prefix})
     });
+    check401(r);
     let d={}; try{ d=await r.json(); }catch(_){}
     if(!r.ok) throw new Error(d.error||("il server ha risposto "+r.status));
     $("botToken").value="";
