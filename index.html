@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Xeno</title>
+<style>
+:root{--sky:#e8f4fd;--sky2:#cfe8fb;--blue:#2b8de0;--ink:#16324a;--mute:#6b8398;--line:#d6e6f3;--white:#fff}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;background:var(--white);color:var(--ink)}
+button{font:inherit;cursor:pointer;border:0;color:inherit}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.hidden{display:none!important}
+/* login */
+#auth{min-height:100%;display:grid;place-items:center;padding:20px;background:linear-gradient(160deg,var(--sky),var(--white) 60%)}
+.card{width:100%;max-width:380px;background:var(--white);border:1px solid var(--line);border-radius:20px;padding:28px;box-shadow:0 10px 40px #2b8de01f}
+.logo{font-size:28px;font-weight:700;color:var(--blue);margin-bottom:4px}
+.sub{color:var(--mute);margin-bottom:20px}
+.prov{width:100%;padding:12px;margin-bottom:8px;background:var(--white);border:1px solid var(--line);border-radius:12px;font-weight:600}
+.prov:hover{background:var(--sky)}
+.or{text-align:center;color:var(--mute);margin:14px 0;font-size:14px}
+input,textarea{font:inherit;width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--white);color:var(--ink)}
+#auth input{margin-bottom:8px}
+.main-btn{width:100%;padding:12px;background:var(--blue);color:#fff;border-radius:12px;font-weight:700}
+.link{background:none;color:var(--blue);margin-top:12px;width:100%;font-size:14px}
+.err{color:#c0392b;font-size:14px;min-height:20px;margin-top:6px}
+/* app */
+#app{height:100%;display:grid;grid-template-columns:270px 1fr}
+aside{background:var(--sky);border-right:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:8px;overflow:auto}
+aside .logo{margin-bottom:8px}
+.nav{padding:12px;border-radius:12px;background:var(--white);border:1px solid var(--line);text-align:left;font-weight:600}
+.nav:hover,.nav.on{background:var(--sky2)}
+.hist{flex:1;margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.hist h4{font-size:13px;color:var(--mute);font-weight:600;margin-bottom:4px}
+.chat-item{padding:9px 10px;border-radius:10px;background:none;text-align:left;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item:hover{background:#ffffffaa}.chat-item.on{background:var(--white)}
+.me{font-size:13px;color:var(--mute);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.me button{background:none;color:var(--blue);font-size:13px}
+main{display:flex;min-width:0;height:100%}
+.col{flex:1;display:flex;flex-direction:column;min-width:0}
+#msgs{flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:14px}
+.m{max-width:760px;padding:12px 16px;border-radius:16px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
+.m.u{align-self:flex-end;background:var(--blue);color:#fff}
+.m.a{align-self:flex-start;background:var(--sky)}
+.empty{margin:auto;text-align:center;color:var(--mute)}
+.empty b{display:block;font-size:22px;color:var(--ink);margin-bottom:6px}
+pre{background:#0f2a40;color:#e6f2fc;padding:12px;border-radius:10px;overflow:auto;margin:8px 0;font-size:13px;white-space:pre}
+form.bar{display:flex;gap:8px;padding:14px 24px 20px}
+form.bar textarea{resize:none;height:48px}
+form.bar button{padding:0 20px;background:var(--blue);color:#fff;border-radius:12px;font-weight:700}
+/* code panel */
+#codepane{width:46%;border-left:1px solid var(--line);display:flex;flex-direction:column;background:#fafdff}
+#codepane header{display:flex;gap:8px;padding:12px;border-bottom:1px solid var(--line);align-items:center}
+#codepane header b{flex:1}
+#codepane header button{padding:8px 12px;border-radius:10px;background:var(--sky);font-weight:600;font-size:14px}
+#codeview{flex:1;overflow:auto;padding:14px;font:13px/1.5 ui-monospace,Menlo,monospace;white-space:pre}
+#preview{flex:1;border:0;background:#fff}
+/* modal */
+.modal{position:fixed;inset:0;background:#16324a66;display:grid;place-items:center;padding:20px;z-index:5}
+.sheet{background:var(--white);border-radius:20px;padding:24px;max-width:440px;width:100%;max-height:90vh;overflow:auto}
+.plat button:disabled{opacity:.45;cursor:default}
+.out a{color:var(--blue);font-weight:600}
+.sheet h3{margin-bottom:4px}.sheet p{color:var(--mute);margin-bottom:14px;font-size:14px}
+.plat{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.plat button{padding:14px;border-radius:12px;background:var(--sky);font-weight:600}
+.plat button.on{background:var(--blue);color:#fff}
+.out{background:var(--sky);border-radius:12px;padding:12px;font-size:14px;margin-top:12px;word-break:break-all}
+@media(max-width:800px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}aside{flex-direction:row;flex-wrap:wrap;padding:10px}.hist,.me,aside .logo{display:none}#codepane{position:fixed;inset:0;width:100%;z-index:4}}
+</style>
+</head>
+<body>
+
+<!-- ========== REGISTRAZIONE / ACCESSO ========== -->
+<section id="auth">
+  <div class="card">
+    <div class="logo">Xeno</div>
+    <p class="sub" id="authSub">Crea il tuo account per iniziare a chattare.</p>
+    <button class="prov" data-p="google">Continua con Google</button>
+    <button class="prov" data-p="github">Continua con GitHub</button>
+    <button class="prov" data-p="apple">Continua con Apple</button>
+    <div class="or">oppure con la tua email</div>
+    <input id="email" type="email" placeholder="Email" autocomplete="email">
+    <input id="pass" type="password" placeholder="Password (min. 6 caratteri)" autocomplete="current-password">
+    <button class="main-btn" id="emailGo">Registrati</button>
+    <div class="err" id="err"></div>
+    <button class="link" id="swap">Hai già un account? Accedi</button>
+  </div>
+</section>
+
+<!-- ========== APP ========== -->
+<div id="app" class="hidden">
+  <aside>
+    <div class="logo">Xeno</div>
+    <button class="nav" id="newChat">+ New conversation</button>
+    <button class="nav" id="goOnline">Go online</button>
+    <button class="nav" id="codeBtn">Code</button>
+    <div class="hist"><h4>Conversazioni salvate</h4><div id="list"></div></div>
+    <div class="me"><span id="who"></span><button id="logout">Esci</button></div>
+  </aside>
+  <main>
+    <div class="col">
+      <div id="msgs"></div>
+      <form class="bar" id="form">
+        <textarea id="input" placeholder="Scrivi un messaggio..." rows="1"></textarea>
+        <button>Invia</button>
+      </form>
+    </div>
+    <div id="codepane" class="hidden">
+      <header><b>Code</b><button id="runCode">Anteprima</button><button id="copyCode">Copia</button><button id="closeCode">Chiudi</button></header>
+      <div id="codeview">Chiedi qualcosa, il codice generato apparirà qui.</div>
+      <iframe id="preview" class="hidden" sandbox="allow-scripts"></iframe>
+    </div>
+  </main>
+</div>
+
+<!-- ========== GO ONLINE ========== -->
+<div id="onlineModal" class="modal hidden">
+  <div class="sheet">
+    <h3>Go online</h3>
+    <p>Scegli dove mettere online la tua IA.</p>
+    <div class="plat" id="plat">
+      <button data-p="discord">Discord</button><button data-p="whatsapp" disabled>WhatsApp (presto)</button>
+      <button data-p="telegram" disabled>Telegram (presto)</button><button data-p="web" disabled>Sito web (presto)</button>
+    </div>
+    <div id="botFields">
+      <input id="botToken" type="password" placeholder="Token del bot" autocomplete="off" style="margin-bottom:8px">
+      <input id="botPrefix" placeholder="Prefisso (es. !)" maxlength="3" style="margin-bottom:12px">
+    </div>
+    <button class="main-btn" id="publish">Metti online</button>
+    <div class="sub" id="botState" style="margin:12px 0 0"></div>
+    <button class="link" id="stopBot" style="color:#c0392b;margin-top:4px">Ferma bot</button>
+    <div class="out hidden" id="onlineOut"></div>
+    <button class="link" id="closeOnline">Chiudi</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   CONFIGURAZIONE  (modifica solo questa parte)
+   ============================================================ */
+const CONFIG = {
+  // URL del tuo backend (es. la tua app Replit). Lascia "" per la modalità demo.
+  API_URL: "",
+  // Firebase: crea un progetto su console.firebase.google.com, abilita
+  // Authentication > Email/Password, Google, GitHub, Apple e incolla qui i dati.
+  FIREBASE: null
+  /* esempio:
+  FIREBASE: { apiKey:"...", authDomain:"...", projectId:"...", appId:"..." } */
+};
+
+CONFIG.API_URL = CONFIG.API_URL.replace(/\/+$/, ""); // toglie lo "/" finale
+
+/* ============================================================
+   ACCOUNT
+   Con Firebase: login reale. Senza: modalità demo (solo in questo browser).
+   ============================================================ */
+const $ = id => document.getElementById(id);
+let user = null, signup = true, fb = null;
+
+function loadScript(src){return new Promise((ok,ko)=>{const s=document.createElement("script");s.src=src;s.onload=ok;s.onerror=ko;document.head.appendChild(s)})}
+
+async function initAuth(){
+  if(CONFIG.FIREBASE){
+    const v="10.12.2",base=`https://www.gstatic.com/firebasejs/${v}/`;
+    await loadScript(base+"firebase-app-compat.js");
+    await loadScript(base+"firebase-auth-compat.js");
+    firebase.initializeApp(CONFIG.FIREBASE);
+    fb = firebase.auth();
+    fb.onAuthStateChanged(u=>{ if(u) enter({id:u.uid,name:u.displayName||u.email}); else leave(); });
+  } else {
+    const saved = localStorage.getItem("tink_user");
+    if(saved) enter(JSON.parse(saved));
+  }
+}
+
+function showErr(m){$("err").textContent=m}
+
+async function provider(p){
+  showErr("");
+  if(!fb){ // demo
+    return enter({id:"demo-"+p,name:"Utente "+p});
+  }
+  try{
+    const prov = p==="google" ? new firebase.auth.GoogleAuthProvider()
+               : p==="github" ? new firebase.auth.GithubAuthProvider()
+               : new firebase.auth.OAuthProvider("apple.com");
+    await fb.signInWithPopup(prov);
+  }catch(e){showErr(e.message)}
+}
+
+async function emailAuth(){
+  const email=$("email").value.trim(), pass=$("pass").value;
+  showErr("");
+  if(!email.includes("@")||pass.length<6) return showErr("Inserisci un'email valida e una password di almeno 6 caratteri.");
+  if(!fb) return enter({id:"demo-"+email,name:email});
+  try{
+    signup ? await fb.createUserWithEmailAndPassword(email,pass)
+           : await fb.signInWithEmailAndPassword(email,pass);
+  }catch(e){showErr(e.message)}
+}
+
+function enter(u){
+  user=u;
+  if(!fb) localStorage.setItem("tink_user",JSON.stringify(u));
+  $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
+  $("who").textContent=u.name;
+  loadChats(); newConversation(true);
+}
+function leave(){
+  user=null; localStorage.removeItem("tink_user");
+  $("app").classList.add("hidden"); $("auth").classList.remove("hidden");
+}
+
+document.querySelectorAll(".prov").forEach(b=>b.onclick=()=>provider(b.dataset.p));
+$("emailGo").onclick=emailAuth;
+$("swap").onclick=()=>{
+  signup=!signup;
+  $("emailGo").textContent=signup?"Registrati":"Accedi";
+  $("swap").textContent=signup?"Hai già un account? Accedi":"Non hai un account? Registrati";
+  $("authSub").textContent=signup?"Crea il tuo account per iniziare a chattare.":"Bentornato! Accedi al tuo account.";
+};
+$("logout").onclick=()=>fb?fb.signOut():leave();
+
+/* ============================================================
+   CONVERSAZIONI (salvate per utente nel browser)
+   ============================================================ */
+let chats=[], cur=null, codeMode=false;
+const key=()=>"tink_chats_"+user.id;
+const uid=()=>Math.random().toString(36).slice(2,10);
+
+function loadChats(){ chats=JSON.parse(localStorage.getItem(key())||"[]"); renderList(); }
+function saveChats(){ localStorage.setItem(key(),JSON.stringify(chats)); renderList(); }
+
+function newConversation(first){
+  // la conversazione precedente resta salvata nell'elenco, se ha messaggi
+  cur={id:uid(),title:"Nuova conversazione",msgs:[]};
+  chats.unshift(cur);
+  if(!first) chats=chats.filter(c=>c===cur||c.msgs.length);
+  renderList(); renderMsgs();
+}
+
+function renderList(){
+  const box=$("list"); box.innerHTML="";
+  chats.filter(c=>c.msgs.length).forEach(c=>{
+    const b=document.createElement("button");
+    b.className="chat-item"+(cur&&c.id===cur.id?" on":"");
+    b.textContent=c.title;
+    b.onclick=()=>{ cur=c; renderMsgs(); renderList(); };
+    box.appendChild(b);
+  });
+}
+
+function renderMsgs(){
+  const box=$("msgs"); box.innerHTML="";
+  if(!cur.msgs.length){
+    box.innerHTML='<div class="empty"><b>Come posso aiutarti?</b>Scrivi un messaggio per iniziare.</div>';
+    return;
+  }
+  cur.msgs.forEach(m=>box.appendChild(bubble(m)));
+  box.scrollTop=box.scrollHeight;
+}
+
+function bubble(m){
+  const d=document.createElement("div"); d.className="m "+(m.role==="user"?"u":"a");
+  const parts=m.content.split("```");
+  parts.forEach((p,i)=>{
+    if(i%2){ const pre=document.createElement("pre"); pre.textContent=p.replace(/^\w*\n/,""); d.appendChild(pre); }
+    else d.appendChild(document.createTextNode(p));
+  });
+  return d;
+}
+
+/* ============================================================
+   CHAT
+   ============================================================ */
+async function askAI(){
+  const msgs=cur.msgs.map(m=>({role:m.role,content:m.content}));
+  if(!CONFIG.API_URL){
+    await new Promise(r=>setTimeout(r,500));
+    return codeMode
+      ? "Modalità demo. Collega il tuo backend in CONFIG.API_URL. Intanto ecco un esempio:\n```html\n<h1>Ciao dal Code di Xeno!</h1>\n```"
+      : "Modalità demo: collega il tuo backend in CONFIG.API_URL per avere risposte vere.";
+  }
+  const r=await fetch(CONFIG.API_URL+"/api/chat",{
+    method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},
+    body:JSON.stringify({messages:msgs,mode:codeMode?"code":"chat",userId:user.id})
+  });
+  if(!r.ok) throw new Error("Errore del server ("+r.status+")");
+  return (await r.json()).reply;
+}
+
+$("form").onsubmit=async e=>{
+  e.preventDefault();
+  const t=$("input").value.trim(); if(!t) return;
+  $("input").value="";
+  cur.msgs.push({role:"user",content:t});
+  if(cur.msgs.length===1) cur.title=t.slice(0,40);
+  saveChats(); renderMsgs();
+  let reply;
+  try{ reply=await askAI(); }catch(err){ reply="Non riesco a contattare l'IA: "+err.message; }
+  cur.msgs.push({role:"assistant",content:reply});
+  saveChats(); renderMsgs();
+  if(codeMode) showCode(reply);
+};
+$("input").onkeydown=e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); $("form").requestSubmit(); } };
+$("newChat").onclick=()=>newConversation(false);
+
+/* ============================================================
+   CODE: l'IA scrive codice, lo vedi a destra, lo copi o lo provi
+   ============================================================ */
+let lastCode="";
+function showCode(text){
+  const parts=text.split("```"); if(parts.length<3) return;
+  lastCode=parts[1].replace(/^\w*\n/,"");
+  $("codeview").textContent=lastCode;
+  $("preview").classList.add("hidden"); $("codeview").classList.remove("hidden");
+}
+$("codeBtn").onclick=()=>{
+  codeMode=!codeMode;
+  $("codeBtn").classList.toggle("on",codeMode);
+  $("codepane").classList.toggle("hidden",!codeMode);
+};
+$("closeCode").onclick=()=>{ codeMode=false; $("codeBtn").classList.remove("on"); $("codepane").classList.add("hidden"); };
+$("copyCode").onclick=()=>navigator.clipboard&&navigator.clipboard.writeText(lastCode);
+$("runCode").onclick=()=>{
+  const p=$("preview"), showing=!p.classList.contains("hidden");
+  if(showing){ p.classList.add("hidden"); $("codeview").classList.remove("hidden"); return; }
+  p.srcdoc=lastCode; p.classList.remove("hidden"); $("codeview").classList.add("hidden");
+};
+
+/* ============================================================
+   GO ONLINE: pubblica l'IA su Discord, WhatsApp, Telegram, sito web
+   Il backend crea il bot e restituisce il link / lo script da usare.
+   ============================================================ */
+let platform="discord";
+document.querySelectorAll("#plat button").forEach(b=>{
+  b.onclick=()=>{
+    platform=b.dataset.p;
+    document.querySelectorAll("#plat button").forEach(x=>x.classList.toggle("on",x===b));
+    $("botFields").classList.toggle("hidden",platform==="web");
+  };
+});
+$("plat").firstElementChild.classList.add("on");
+$("goOnline").onclick=()=>{
+  $("onlineOut").classList.add("hidden"); $("onlineModal").classList.remove("hidden");
+  refreshBotState();
+};
+
+async function authHeaders(){
+  // invia il "biglietto" Firebase così il backend sa chi sei
+  if(fb && fb.currentUser) return {Authorization:"Bearer "+await fb.currentUser.getIdToken()};
+  return {};
+}
+
+async function refreshBotState(){
+  const el=$("botState"); el.textContent="";
+  if(!CONFIG.API_URL) return;
+  try{
+    const r=await fetch(CONFIG.API_URL+"/api/bot-status",{headers:await authHeaders()});
+    const d=await r.json();
+    el.textContent = r.ok
+      ? "Stato del bot: "+d.state+(d.error?" ("+d.error+")":"")
+      : (d.error||"");
+  }catch(e){ el.textContent="Backend non raggiungibile."; }
+}
+
+$("stopBot").onclick=async()=>{
+  if(!CONFIG.API_URL) return;
+  if(!confirm("Spegnere il bot e cancellare il token salvato?")) return;
+  try{
+    const r=await fetch(CONFIG.API_URL+"/api/stop-bot",{method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},body:"{}"});
+    const d=await r.json();
+    $("botState").textContent=d.message||d.error||"";
+  }catch(e){ $("botState").textContent="Non sono riuscito a fermare il bot."; }
+};
+$("closeOnline").onclick=()=>$("onlineModal").classList.add("hidden");
+
+$("publish").onclick=async()=>{
+  const out=$("onlineOut"), btn=$("publish");
+  out.classList.remove("hidden"); out.textContent="";
+  const token=$("botToken").value.trim(), prefix=$("botPrefix").value.trim()||"!";
+  if(platform!=="discord"){ out.textContent="Per ora è disponibile solo Discord."; return; }
+  if(!token){ out.textContent="Incolla il token del bot."; return; }
+  if(!CONFIG.API_URL){ out.textContent="Modalità demo: scrivi l'indirizzo del backend in CONFIG.API_URL."; return; }
+  btn.disabled=true; btn.textContent="Sto accendendo il bot (fino a 30 secondi)...";
+  try{
+    const r=await fetch(CONFIG.API_URL+"/api/go-online",{
+      method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},
+      body:JSON.stringify({platform,token,prefix})
+    });
+    let d={}; try{ d=await r.json(); }catch(_){}
+    if(!r.ok) throw new Error(d.error||("il server ha risposto "+r.status));
+    $("botToken").value="";
+    out.textContent=(d.message||"Il bot è online.")+" ";
+    if(d.invite){
+      const a=document.createElement("a");
+      a.href=d.invite; a.target="_blank"; a.rel="noopener"; a.textContent="Invita il bot nel tuo server";
+      out.appendChild(a);
+    }
+    refreshBotState();
+  }catch(e){
+    out.textContent = e instanceof TypeError
+      ? "Non riesco a raggiungere il backend: controlla CONFIG.API_URL e che sia acceso."
+      : "Non è stato possibile andare online: "+e.message;
+  }finally{ btn.disabled=false; btn.textContent="Metti online"; }
+};
+
+initAuth();
+</script>
+</body>
+</html>
