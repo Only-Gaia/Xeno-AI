@@ -1,0 +1,8 @@
+flask
+flask-cors
+cryptography
+discord.py
+google-generativeai
+google-auth
+requests
+gunicorn
