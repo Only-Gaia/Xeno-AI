@@ -3,31 +3,28 @@ Backend di Xeno: ti dà token + prefisso, il bot resta online da solo.
 - Token salvati CIFRATI in un database (SQLite)
 - All'avvio riaccende tutti i bot salvati
 - Ogni 30 secondi controlla i bot e riavvia quelli caduti
+- Accesso protetto da un codice segreto (ACCESS_CODE), niente Firebase
 
-Variabili d'ambiente (Secrets di Replit / Variables di Railway):
+Variabili d'ambiente (Environment su Render):
   GEMINI_API_KEY   la tua chiave Gemini
   ENCRYPTION_KEY   chiave per cifrare i token (vedi sotto come crearla)
-  FIREBASE_PROJECT_ID  l'ID del tuo progetto Firebase (serve a verificare chi chiama)
+  ACCESS_CODE      codice segreto di accesso (una frase lunga scelta da te)
   DB_PATH          (opzionale) percorso del database, es. /data/bots.db
-  DEV_MODE=1       (solo per prove) accetta userId senza login: NON usarlo online
 
 Crea ENCRYPTION_KEY una volta sola, da terminale:
   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 NON perderla e NON cambiarla: senza di lei i token salvati non si leggono più.
 """
-import os, asyncio, threading, time, sqlite3
+import os, asyncio, threading, time, sqlite3, hmac
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from cryptography.fernet import Fernet
 import discord
 import google.generativeai as genai
-from google.oauth2 import id_token
-from google.auth.transport import requests as grequests
 
 MODEL = "gemini-2.0-flash"   # metti lo stesso modello che usi già nella tua app
 DB_PATH = os.environ.get("DB_PATH", "bots.db")
-FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID", "")
-DEV_MODE = os.environ.get("DEV_MODE") == "1"
+ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 model = genai.GenerativeModel(
@@ -71,22 +68,14 @@ def delete_bot(user_id):
 
 # ---------- chi sta chiamando? ----------
 def current_user():
-    """Ritorna l'id verificato dell'utente (Firebase), oppure None."""
+    """Ritorna "owner" se il codice di accesso è corretto, altrimenti None."""
     h = request.headers.get("Authorization", "")
-    if h.startswith("Bearer ") and FIREBASE_PROJECT_ID:
-        try:
-            info = id_token.verify_firebase_token(
-                h[7:], grequests.Request(), audience=FIREBASE_PROJECT_ID)
-            return info["sub"]
-        except Exception:
-            return None
-    if DEV_MODE:
-        d = request.get_json(silent=True) or {}
-        return d.get("userId") or request.args.get("userId") or "dev"
+    if ACCESS_CODE and h.startswith("Bearer ") and hmac.compare_digest(h[7:], ACCESS_CODE):
+        return "owner"
     return None
 
 def need_login():
-    return jsonify(error="Devi accedere per usare questa funzione."), 401
+    return jsonify(error="Codice di accesso mancante o sbagliato."), 401
 
 # ---------- IA ----------
 def ask_gemini(text):
