@@ -3,20 +3,26 @@ Backend di Xeno: ti dà token + prefisso, il bot resta online da solo.
 - Token salvati CIFRATI in un database (SQLite)
 - All'avvio riaccende tutti i bot salvati
 - Ogni 30 secondi controlla i bot e riavvia quelli caduti
-- Accesso protetto da un codice segreto (ACCESS_CODE), niente Firebase
+- Account veri: email+password oppure Google / GitHub, con nome utente ed età
 
 Variabili d'ambiente (Environment su Render):
   GEMINI_API_KEY   la tua chiave Gemini
   ENCRYPTION_KEY   chiave per cifrare i token (vedi sotto come crearla)
-  ACCESS_CODE      codice segreto di accesso (una frase lunga scelta da te)
-  DB_PATH          (opzionale) percorso del database, es. /data/bots.db
+  DB_PATH          percorso del database (con disco Render: /data/bots.db)
+  GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET   (opzionali) per "Continua con GitHub"
+  GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   (opzionali) per "Continua con Google"
 
 Crea ENCRYPTION_KEY una volta sola, da terminale:
   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 NON perderla e NON cambiarla: senza di lei i token salvati non si leggono più.
 """
-import os, asyncio, threading, time, sqlite3, hmac, base64
-from flask import Flask, request, jsonify, send_from_directory
+import os, asyncio, threading, time, sqlite3, base64, hashlib, re, secrets
+from urllib.parse import urlencode, quote
+import requests
+from flask import Flask, request, jsonify, send_from_directory, redirect
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
+from itsdangerous import URLSafeTimedSerializer
 from flask_cors import CORS
 from cryptography.fernet import Fernet
 import discord
@@ -24,7 +30,12 @@ import google.generativeai as genai
 
 MODEL = "gemini-2.0-flash"   # metti lo stesso modello che usi già nella tua app
 DB_PATH = os.environ.get("DB_PATH", "bots.db")
-ACCESS_CODE = os.environ.get("ACCESS_CODE", "")
+MIN_AGE = 14
+SESSION_DAYS = 30
+OAUTH = {
+    "github": {"id": os.environ.get("GITHUB_CLIENT_ID", ""), "secret": os.environ.get("GITHUB_CLIENT_SECRET", "")},
+    "google": {"id": os.environ.get("GOOGLE_CLIENT_ID", ""), "secret": os.environ.get("GOOGLE_CLIENT_SECRET", "")},
+}
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 model = genai.GenerativeModel(
@@ -32,10 +43,14 @@ model = genai.GenerativeModel(
     system_instruction="Ti chiami Xeno. Sei un assistente IA gentile e chiaro. "
                        "Rispondi nella lingua dell'utente.")
 fernet = Fernet(os.environ["ENCRYPTION_KEY"].encode())
+# firma delle sessioni: derivata da ENCRYPTION_KEY, non serve un'altra variabile
+signer = URLSafeTimedSerializer(
+    hashlib.sha256(b"xeno-sessions:" + os.environ["ENCRYPTION_KEY"].encode()).hexdigest())
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # allegati: max 25 MB a richiesta
 CORS(app)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)   # Render: link https corretti
 
 # ---------- database ----------
 db_lock = threading.Lock()
@@ -48,6 +63,11 @@ with db() as c:
     c.execute("""CREATE TABLE IF NOT EXISTS bots(
         user_id TEXT PRIMARY KEY, platform TEXT, token_enc BLOB,
         prefix TEXT, active INTEGER DEFAULT 1, last_error TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS users(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE,
+        username TEXT UNIQUE COLLATE NOCASE, age INTEGER, pw_hash TEXT,
+        provider TEXT, provider_id TEXT, created INTEGER)""")
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_social ON users(provider, provider_id)")
 
 def save_bot(user_id, token, prefix):
     with db_lock, db() as c:
@@ -69,14 +89,20 @@ def delete_bot(user_id):
 
 # ---------- chi sta chiamando? ----------
 def current_user():
-    """Ritorna "owner" se il codice di accesso è corretto, altrimenti None."""
+    """Ritorna l'id dell'utente (testo) se la sessione è valida, altrimenti None."""
     h = request.headers.get("Authorization", "")
-    if ACCESS_CODE and h.startswith("Bearer ") and hmac.compare_digest(h[7:], ACCESS_CODE):
-        return "owner"
-    return None
+    if not h.startswith("Bearer "):
+        return None
+    try:
+        data = signer.loads(h[7:], salt="session", max_age=SESSION_DAYS * 86400)
+    except Exception:
+        return None
+    with db_lock, db() as c:
+        ok = c.execute("SELECT 1 FROM users WHERE id=?", (data["u"],)).fetchone()
+    return str(data["u"]) if ok else None
 
 def need_login():
-    return jsonify(error="Codice di accesso mancante o sbagliato."), 401
+    return jsonify(error="Accedi per continuare."), 401
 
 # ---------- IA ----------
 def ask_gemini(text):
@@ -89,7 +115,8 @@ ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif", "applicati
 
 @app.post("/api/chat")
 def chat():
-    if not current_user():
+    uid = current_user()
+    if not uid:
         return need_login()
     d = request.get_json(force=True)
     history = "\n".join(f"{m['role']}: {m['content']}" for m in d.get("messages", []))
@@ -235,6 +262,171 @@ def bot_status():
     r = running.get(row["user_id"])
     online = bool(r) and not r["client"].is_closed()
     return jsonify(state="online" if online else "spento", error=row["last_error"])
+
+# ---------- ACCOUNT ----------
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,20}$")
+
+def check_profile(username, age):
+    if not USERNAME_RE.match(username or ""):
+        return "Il nome utente deve avere 3-20 caratteri: lettere, numeri, _ . -"
+    try:
+        age = int(age)
+    except (TypeError, ValueError):
+        return "Inserisci un'età valida."
+    if age < MIN_AGE:
+        return "Devi avere almeno %d anni per creare un account." % MIN_AGE
+    if age > 120:
+        return "Inserisci un'età valida."
+    return None
+
+def create_user(email, username, age, pw_hash, provider, pid):
+    with db_lock, db() as c:
+        if c.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+            return None, "Questo nome utente è già preso."
+        if email and c.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+            return None, "Questa email è già registrata."
+        try:
+            cur = c.execute(
+                "INSERT INTO users(email,username,age,pw_hash,provider,provider_id,created) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (email, username, int(age), pw_hash, provider, pid, int(time.time())))
+        except sqlite3.IntegrityError:
+            return None, "Account già esistente."
+        return cur.lastrowid, None
+
+def session_for(uid):
+    with db_lock, db() as c:
+        row = c.execute("SELECT id, username FROM users WHERE id=?", (uid,)).fetchone()
+    return {"token": signer.dumps({"u": row["id"]}, salt="session"),
+            "user": {"id": row["id"], "username": row["username"]}}
+
+@app.get("/api/auth/providers")
+def providers():
+    return jsonify(google=bool(OAUTH["google"]["id"]), github=bool(OAUTH["github"]["id"]))
+
+@app.get("/api/auth/me")
+def me():
+    uid = current_user()
+    if not uid:
+        return need_login()
+    with db_lock, db() as c:
+        row = c.execute("SELECT id, username FROM users WHERE id=?", (uid,)).fetchone()
+    return jsonify(user={"id": row["id"], "username": row["username"]})
+
+@app.post("/api/auth/email")
+def auth_email():
+    """Email già registrata -> accede. Email nuova -> chiede nome utente ed età."""
+    d = request.get_json(force=True)
+    email = (d.get("email") or "").strip().lower()
+    password = d.get("password") or ""
+    if "@" not in email or len(password) < 6:
+        return jsonify(error="Inserisci un'email valida e una password di almeno 6 caratteri."), 400
+    with db_lock, db() as c:
+        row = c.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+    if not row:
+        return jsonify(need_profile=True)
+    if not row["pw_hash"]:
+        return jsonify(error="Questo account usa l'accesso con %s." % (row["provider"] or "un altro servizio").capitalize()), 400
+    if not check_password_hash(row["pw_hash"], password):
+        return jsonify(error="Password sbagliata."), 400
+    return jsonify(session_for(row["id"]))
+
+@app.post("/api/auth/register")
+def auth_register():
+    d = request.get_json(force=True)
+    email = (d.get("email") or "").strip().lower()
+    password = d.get("password") or ""
+    username = (d.get("username") or "").strip()
+    if "@" not in email or len(password) < 6:
+        return jsonify(error="Email o password non valide."), 400
+    err = check_profile(username, d.get("age"))
+    if err:
+        return jsonify(error=err), 400
+    uid, err = create_user(email, username, d.get("age"), generate_password_hash(password), None, None)
+    if err:
+        return jsonify(error=err), 400
+    return jsonify(session_for(uid))
+
+@app.post("/api/auth/complete")
+def auth_complete():
+    """Secondo passo dopo Google/GitHub per chi non è ancora registrato."""
+    d = request.get_json(force=True)
+    try:
+        p = signer.loads(d.get("pending", ""), salt="pending", max_age=900)
+    except Exception:
+        return jsonify(error="Sessione scaduta, riprova ad accedere."), 400
+    username = (d.get("username") or "").strip()
+    err = check_profile(username, d.get("age"))
+    if err:
+        return jsonify(error=err), 400
+    uid, err = create_user(p.get("email"), username, d.get("age"), None, p["p"], p["pid"])
+    if err:
+        return jsonify(error=err), 400
+    return jsonify(session_for(uid))
+
+def back(**kw):
+    return redirect("/#" + urlencode(kw, quote_via=quote))
+
+@app.get("/api/auth/<p>/start")
+def oauth_start(p):
+    cfg = OAUTH.get(p)
+    if not cfg or not cfg["id"]:
+        return back(autherr="Questo accesso non è ancora attivo.")
+    cb = request.url_root.rstrip("/") + "/api/auth/%s/callback" % p
+    state = signer.dumps({"p": p, "n": secrets.token_hex(8)}, salt="state")
+    if p == "github":
+        url = "https://github.com/login/oauth/authorize?" + urlencode(
+            {"client_id": cfg["id"], "redirect_uri": cb, "scope": "read:user user:email", "state": state})
+    else:
+        url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(
+            {"client_id": cfg["id"], "redirect_uri": cb, "response_type": "code",
+             "scope": "openid email profile", "state": state, "prompt": "select_account"})
+    return redirect(url)
+
+@app.get("/api/auth/<p>/callback")
+def oauth_callback(p):
+    cfg = OAUTH.get(p)
+    if not cfg or not cfg["id"]:
+        return back(autherr="Questo accesso non è ancora attivo.")
+    try:
+        st = signer.loads(request.args.get("state", ""), salt="state", max_age=600)
+        assert st["p"] == p
+    except Exception:
+        return back(autherr="Sessione scaduta, riprova.")
+    code = request.args.get("code")
+    if not code:
+        return back(autherr="Accesso annullato.")
+    cb = request.url_root.rstrip("/") + "/api/auth/%s/callback" % p
+    try:
+        if p == "github":
+            t = requests.post("https://github.com/login/oauth/access_token",
+                data={"client_id": cfg["id"], "client_secret": cfg["secret"], "code": code, "redirect_uri": cb},
+                headers={"Accept": "application/json"}, timeout=10).json()
+            h = {"Authorization": "Bearer " + t["access_token"], "Accept": "application/vnd.github+json"}
+            u = requests.get("https://api.github.com/user", headers=h, timeout=10).json()
+            mails = requests.get("https://api.github.com/user/emails", headers=h, timeout=10).json()
+            email = next((e["email"] for e in mails if e.get("primary") and e.get("verified")), None)
+            pid, name = str(u["id"]), u.get("login") or ""
+        else:
+            t = requests.post("https://oauth2.googleapis.com/token",
+                data={"code": code, "client_id": cfg["id"], "client_secret": cfg["secret"],
+                      "redirect_uri": cb, "grant_type": "authorization_code"}, timeout=10).json()
+            u = requests.get("https://openidconnect.googleapis.com/v1/userinfo",
+                headers={"Authorization": "Bearer " + t["access_token"]}, timeout=10).json()
+            pid = u["sub"]
+            email = u.get("email") if u.get("email_verified") else None
+            name = u.get("name") or ""
+    except Exception:
+        return back(autherr="Non sono riuscito a completare l'accesso, riprova.")
+    email = email.lower() if email else None
+    with db_lock, db() as c:
+        row = c.execute("SELECT id FROM users WHERE provider=? AND provider_id=?", (p, pid)).fetchone()
+        if not row and email:   # già registrato con la stessa email verificata
+            row = c.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+    if row:
+        return back(token=session_for(row["id"])["token"])
+    pending = signer.dumps({"p": p, "pid": pid, "email": email}, salt="pending")
+    return back(signup=pending, name=re.sub(r"[^A-Za-z0-9_.-]", "", name)[:20])
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
