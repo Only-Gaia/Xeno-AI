@@ -1,22 +1,13 @@
 """
 Backend di Xeno: chat IA (Gemini) + account + bot Discord sempre online.
-- Account veri: email+password oppure GitHub, con nome utente ed età
-- Token dei bot Discord salvati CIFRATI in un database (SQLite)
-- All'avvio riaccende tutti i bot salvati; ogni 30 secondi riavvia quelli caduti
-
-Variabili d'ambiente (Environment su Render):
-  GEMINI_API_KEY   la tua chiave Gemini (comincia con AIza...)
-  ENCRYPTION_KEY   chiave per cifrare i token (vedi sotto come crearla)
-  GEMINI_MODEL     (opzionale) modello Gemini, default gemini-3.8-flash
-  DB_PATH          percorso del database (con disco Render: /data/bots.db)
-  GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET   (opzionali) per "Continua con GitHub"
-  GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   (opzionali, non usati dal sito ora)
-
-Crea ENCRYPTION_KEY una volta sola, da terminale:
-  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-NON perderla e NON cambiarla: senza di lei i token salvati non si leggono più.
+Variabili (Environment su Render): GEMINI_API_KEY, ENCRYPTION_KEY, GEMINI_MODEL (opz.),
+DB_PATH (opz., con disco: /data/bots.db), GITHUB_CLIENT_ID/SECRET, GOOGLE_CLIENT_ID/SECRET (opz.)
+Comando di avvio consigliato su Render (UNA sola copia, altrimenti i bot Discord si duplicano):
+  gunicorn main:app --workers 1 --threads 8 --timeout 120
+Test dell'IA: apri  https://IL-TUO-SITO.onrender.com/api/ai-test
 """
 import os, asyncio, threading, time, sqlite3, base64, hashlib, re, secrets, traceback
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FTimeout
 from contextlib import contextmanager
 from urllib.parse import urlencode, quote
 import requests
@@ -31,54 +22,66 @@ from google import genai
 from google.genai import types
 
 MODEL = (os.environ.get("GEMINI_MODEL") or "gemini-3.8-flash").strip()
-MIN_AGE = 14
-SESSION_DAYS = 30
+FALLBACKS = ["gemini-2.5-flash", "gemini-2.0-flash"]   # provati solo se il modello principale non esiste
+MIN_AGE, SESSION_DAYS = 14, 30
 OAUTH = {
     "github": {"id": os.environ.get("GITHUB_CLIENT_ID", ""), "secret": os.environ.get("GITHUB_CLIENT_SECRET", "")},
     "google": {"id": os.environ.get("GOOGLE_CLIENT_ID", ""), "secret": os.environ.get("GOOGLE_CLIENT_SECRET", "")},
 }
-SYSTEM = ("Ti chiami Xeno. Sei un assistente IA gentile e chiaro. "
-          "Rispondi nella lingua dell'utente.")
-SYSTEM_CODE = SYSTEM + (" Quando l'utente chiede del codice, rispondi con il codice completo "
-                        "in un blocco ``` e una breve spiegazione.")
+SYSTEM = "Ti chiami Xeno. Sei un assistente IA gentile e chiaro. Rispondi nella lingua dell'utente."
+SYSTEM_CODE = SYSTEM + " Quando l'utente chiede del codice, rispondi con il codice completo in un blocco ``` e una breve spiegazione."
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"}
 
-# ---------- Gemini (SDK ufficiale google-genai) ----------
-client = genai.Client(
-    api_key=os.environ["GEMINI_API_KEY"].strip(),
-    http_options=types.HttpOptions(timeout=90000))   # 90 secondi, poi errore (non resta appeso)
+# ---------- Gemini ----------
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"].strip(),
+                      http_options=types.HttpOptions(timeout=40000))   # 40 s per tentativo
+pool = ThreadPoolExecutor(max_workers=8)
 
-def generate(contents, system):
-    """Chiede una risposta a Gemini. Ritorna il testo oppure solleva un errore."""
+def _call(model, contents, system):
     cfg = {"system_instruction": system}
-    if MODEL.startswith("gemini-3"):
-        # i modelli 3.x di default "ragionano" a lungo; "low" li rende veloci per la chat
+    if model.startswith("gemini-3"):
         cfg["thinking_config"] = types.ThinkingConfig(thinking_level="low")
-    res = client.models.generate_content(
-        model=MODEL, contents=contents, config=types.GenerateContentConfig(**cfg))
+    res = client.models.generate_content(model=model, contents=contents,
+                                         config=types.GenerateContentConfig(**cfg))
     text = (res.text or "").strip()
     if not text:
         raise ValueError("EMPTY")
     return text
 
+def _try_models(contents, system):
+    last = None
+    for mdl in dict.fromkeys([MODEL] + FALLBACKS):
+        try:
+            return _call(mdl, contents, system)
+        except Exception as e:
+            last = e
+            if not any(k in str(e) for k in ("404", "NOT_FOUND", "INVALID_ARGUMENT")):
+                break          # errore diverso (quota, chiave, timeout): inutile cambiare modello
+    raise last
+
+def generate(contents, system):
+    """Risposta di Gemini, con limite massimo di 55 secondi (mai appeso all'infinito)."""
+    fut = pool.submit(_try_models, contents, system)
+    try:
+        return fut.result(timeout=55)
+    except FTimeout:
+        raise TimeoutError("timed out")
+
 def friendly(e):
-    """Trasforma gli errori di Gemini in frasi chiare in italiano."""
-    m = str(e)
-    low = m.lower()
+    m, low = str(e), str(e).lower()
     if m == "EMPTY":
         return "L'IA non ha dato nessuna risposta (forse bloccata dai filtri). Riprova con un'altra frase."
     if "429" in m or "RESOURCE_EXHAUSTED" in m:
         return "Troppe richieste o quota di Gemini esaurita. Riprova tra un minuto."
-    if "api key" in low or "API_KEY" in m or "401" in m or "403" in m or "PERMISSION_DENIED" in m:
+    if "api key" in low or "API_KEY" in m or "PERMISSION_DENIED" in m or "UNAUTHENTICATED" in m:
         return "La chiave Gemini non è valida: controlla GEMINI_API_KEY su Render."
     if "404" in m or "NOT_FOUND" in m:
-        return "Il modello Gemini non esiste più: cambia GEMINI_MODEL su Render."
+        return "Il modello Gemini non esiste: cambia GEMINI_MODEL su Render."
     if "timeout" in low or "timed out" in low or "deadline" in low:
         return "L'IA ci ha messo troppo, riprova."
     return "Errore dell'IA: " + m[:200]
 
 def ask_gemini(text):
-    """Per il bot Discord: una domanda, una risposta (max 1900 caratteri)."""
     try:
         c = [types.Content(role="user", parts=[types.Part.from_text(text=text)])]
         return generate(c, SYSTEM)[:1900]
@@ -87,14 +90,13 @@ def ask_gemini(text):
         return friendly(e)
 
 def build_contents(messages, files):
-    """Messaggi della chat -> formato Gemini. Ritorna (contents, errore)."""
     turns = []
-    for m in (messages or [])[-30:]:                 # ultimi 30 messaggi
+    for m in (messages or [])[-30:]:
         role = "user" if m.get("role") == "user" else "model"
         text = str(m.get("content") or "").strip()
         if not text:
             continue
-        if turns and turns[-1]["role"] == role:      # niente due turni di fila dello stesso tipo
+        if turns and turns[-1]["role"] == role:
             turns[-1]["text"] += "\n" + text
         else:
             turns.append({"role": role, "text": text})
@@ -103,35 +105,32 @@ def build_contents(messages, files):
     if not turns or turns[-1]["role"] != "user":
         return None, "Scrivi un messaggio."
     extra = []
-    for f in (files or [])[:4]:                      # max 4 allegati
+    for f in (files or [])[:4]:
         mime = (f or {}).get("mime")
         if mime not in ALLOWED_MIME:
             continue
         try:
-            extra.append(types.Part.from_bytes(
-                data=base64.b64decode(f.get("data", ""), validate=True), mime_type=mime))
+            extra.append(types.Part.from_bytes(data=base64.b64decode(f.get("data", ""), validate=True), mime_type=mime))
         except Exception:
             return None, "Allegato non valido."
     contents = []
     for i, t in enumerate(turns):
         parts = [types.Part.from_text(text=t["text"])]
         if i == len(turns) - 1:
-            parts += extra                           # gli allegati vanno con l'ultimo messaggio
+            parts += extra
         contents.append(types.Content(role=t["role"], parts=parts))
     return contents, None
 
-fernet = Fernet(os.environ["ENCRYPTION_KEY"].strip().encode())
-# firma delle sessioni: derivata da ENCRYPTION_KEY, non serve un'altra variabile
-signer = URLSafeTimedSerializer(
-    hashlib.sha256(b"xeno-sessions:" + os.environ["ENCRYPTION_KEY"].strip().encode()).hexdigest())
+KEY = os.environ["ENCRYPTION_KEY"].strip().encode()
+fernet = Fernet(KEY)
+signer = URLSafeTimedSerializer(hashlib.sha256(b"xeno-sessions:" + KEY).hexdigest())
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # allegati: max 25 MB a richiesta
+app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 CORS(app)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)   # Render: link https corretti
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 def body():
-    """Il JSON della richiesta, senza errori se è vuoto o rotto."""
     return request.get_json(force=True, silent=True) or {}
 
 # ---------- database ----------
@@ -143,8 +142,7 @@ def _db_path(path):
         except OSError:
             pass
         if not (os.path.isdir(d) and os.access(d, os.W_OK)):
-            print("ATTENZIONE: la cartella %s non esiste (manca il disco su Render?). "
-                  "Uso bots.db locale: i dati si perdono ad ogni riavvio." % d)
+            print("ATTENZIONE: cartella %s non disponibile, uso bots.db locale (dati persi ai riavvii)." % d)
             return "bots.db"
     return path
 
@@ -181,8 +179,7 @@ def save_bot(user_id, token, prefix):
 
 def set_state(user_id, active, error=None):
     with db_lock, db() as c:
-        c.execute("UPDATE bots SET active=?, last_error=? WHERE user_id=?",
-                  (active, error, user_id))
+        c.execute("UPDATE bots SET active=?, last_error=? WHERE user_id=?", (active, error, user_id))
 
 def get_bot(user_id):
     with db_lock, db() as c:
@@ -192,9 +189,8 @@ def delete_bot(user_id):
     with db_lock, db() as c:
         c.execute("DELETE FROM bots WHERE user_id=?", (user_id,))
 
-# ---------- chi sta chiamando? ----------
+# ---------- sessione ----------
 def current_user():
-    """Ritorna l'id dell'utente (testo) se la sessione è valida, altrimenti None."""
     h = request.headers.get("Authorization", "")
     if not h.startswith("Bearer "):
         return None
@@ -219,14 +215,24 @@ def chat():
     if err:
         return jsonify(error=err), 400
     try:
-        reply = generate(contents, SYSTEM_CODE if d.get("mode") == "code" else SYSTEM)
-        return jsonify(reply=reply)
+        return jsonify(reply=generate(contents, SYSTEM_CODE if d.get("mode") == "code" else SYSTEM))
     except Exception as e:
-        traceback.print_exc()          # il motivo preciso compare nei Logs di Render
+        traceback.print_exc()
         return jsonify(error=friendly(e)), 500
 
+@app.get("/api/ai-test")
+def ai_test():
+    """Apri questo indirizzo nel browser per vedere se Gemini funziona e con quale modello."""
+    t0 = time.time()
+    try:
+        r = generate([types.Content(role="user", parts=[types.Part.from_text(text="Rispondi solo: ok")])], SYSTEM)
+        return jsonify(ok=True, model=MODEL, secondi=round(time.time() - t0, 1), risposta=r[:80])
+    except Exception as e:
+        return jsonify(ok=False, model=MODEL, secondi=round(time.time() - t0, 1),
+                       errore=friendly(e), dettaglio=str(e)[:300]), 500
+
 # ---------- bot Discord ----------
-running = {}   # user_id -> {"client", "loop"}
+running = {}
 
 def stop_running(user_id):
     b = running.pop(user_id, None)
@@ -234,7 +240,6 @@ def stop_running(user_id):
         asyncio.run_coroutine_threadsafe(b["client"].close(), b["loop"])
 
 def _launch(user_id, token, prefix, wait=20):
-    """Avvia il bot. Ritorna (invite, errore, fatale). fatale=True se il token è sbagliato."""
     stop_running(user_id)
     intents = discord.Intents.default()
     intents.message_content = True
@@ -275,10 +280,9 @@ def _launch(user_id, token, prefix, wait=20):
     if "id" not in result:
         return None, result.get("error", "Il bot non è partito in tempo."), result.get("fatal", False)
     running[user_id] = {"client": dclient, "loop": loop}
-    invite = "https://discord.com/oauth2/authorize?client_id=%s&scope=bot&permissions=68608" % result["id"]
-    return invite, None, False
+    return "https://discord.com/oauth2/authorize?client_id=%s&scope=bot&permissions=68608" % result["id"], None, False
 
-launch_lock = threading.Lock()   # un solo avvio alla volta: niente bot doppi
+launch_lock = threading.Lock()
 
 def launch(user_id, token, prefix, wait=20):
     with launch_lock:
@@ -286,19 +290,17 @@ def launch(user_id, token, prefix, wait=20):
 
 def revive(row):
     with launch_lock:
-        row = get_bot(row["user_id"])          # dati aggiornati
+        row = get_bot(row["user_id"])
         if not row or not row["active"]:
             return
         r = running.get(row["user_id"])
-        if r and not r["client"].is_closed():  # nel frattempo è già ripartito
+        if r and not r["client"].is_closed():
             return
-        token = fernet.decrypt(row["token_enc"]).decode()
-        _, err, fatal = _launch(row["user_id"], token, row["prefix"], wait=30)
+        _, err, fatal = _launch(row["user_id"], fernet.decrypt(row["token_enc"]).decode(), row["prefix"], wait=30)
         if err and fatal:
-            set_state(row["user_id"], 0, err)  # token da correggere: non riprovo all'infinito
+            set_state(row["user_id"], 0, err)
 
 def watchdog():
-    """Riaccende all'avvio e poi ogni 30 secondi i bot che devono essere attivi."""
     while True:
         try:
             with db_lock, db() as c:
@@ -308,13 +310,12 @@ def watchdog():
                 if not r or r["client"].is_closed():
                     try:
                         revive(row)
-                    except Exception as e:      # un bot rotto non ferma gli altri
+                    except Exception as e:
                         print("watchdog bot", row["user_id"], e)
         except Exception as e:
             print("watchdog:", e)
         time.sleep(30)
 
-# ---------- API bot ----------
 @app.post("/api/go-online")
 def go_online():
     user_id = current_user()
@@ -330,9 +331,9 @@ def go_online():
     invite, err, _ = launch(user_id, token, prefix)
     if err:
         return jsonify(error=err), 400
-    save_bot(user_id, token, prefix)   # salvato solo se il token funziona
-    return jsonify(message="Il bot è online e resterà acceso anche dopo i riavvii. "
-                           "Scrivi %sciao in un canale." % prefix, invite=invite)
+    save_bot(user_id, token, prefix)
+    return jsonify(message="Il bot è online e resterà acceso anche dopo i riavvii. Scrivi %sciao in un canale." % prefix,
+                   invite=invite)
 
 @app.post("/api/stop-bot")
 def stop_bot():
@@ -340,7 +341,7 @@ def stop_bot():
     if not user_id:
         return need_login()
     stop_running(user_id)
-    delete_bot(user_id)   # cancella anche il token salvato
+    delete_bot(user_id)
     return jsonify(message="Bot spento e token cancellato.")
 
 @app.get("/api/bot-status")
@@ -352,10 +353,9 @@ def bot_status():
     if not row:
         return jsonify(state="nessun bot")
     r = running.get(row["user_id"])
-    online = bool(r) and not r["client"].is_closed()
-    return jsonify(state="online" if online else "spento", error=row["last_error"])
+    return jsonify(state="online" if r and not r["client"].is_closed() else "spento", error=row["last_error"])
 
-# ---------- ACCOUNT ----------
+# ---------- account ----------
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,20}$")
 
 def check_profile(username, age):
@@ -378,10 +378,8 @@ def create_user(email, username, age, pw_hash, provider, pid):
         if email and c.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
             return None, "Questa email è già registrata."
         try:
-            cur = c.execute(
-                "INSERT INTO users(email,username,age,pw_hash,provider,provider_id,created) "
-                "VALUES(?,?,?,?,?,?,?)",
-                (email, username, int(age), pw_hash, provider, pid, int(time.time())))
+            cur = c.execute("INSERT INTO users(email,username,age,pw_hash,provider,provider_id,created) VALUES(?,?,?,?,?,?,?)",
+                            (email, username, int(age), pw_hash, provider, pid, int(time.time())))
         except sqlite3.IntegrityError:
             return None, "Account già esistente."
         return cur.lastrowid, None
@@ -407,7 +405,6 @@ def me():
 
 @app.post("/api/auth/email")
 def auth_email():
-    """Email già registrata -> accede. Email nuova -> chiede nome utente ed età."""
     d = body()
     email = (d.get("email") or "").strip().lower()
     password = d.get("password") or ""
@@ -441,7 +438,6 @@ def auth_register():
 
 @app.post("/api/auth/complete")
 def auth_complete():
-    """Secondo passo dopo GitHub per chi non è ancora registrato."""
     d = body()
     try:
         p = signer.loads(d.get("pending", ""), salt="pending", max_age=900)
@@ -497,6 +493,7 @@ def oauth_callback(p):
             h = {"Authorization": "Bearer " + t["access_token"], "Accept": "application/vnd.github+json"}
             u = requests.get("https://api.github.com/user", headers=h, timeout=10).json()
             mails = requests.get("https://api.github.com/user/emails", headers=h, timeout=10).json()
+            mails = mails if isinstance(mails, list) else []
             email = next((e["email"] for e in mails if e.get("primary") and e.get("verified")), None)
             pid, name = str(u["id"]), u.get("login") or ""
         else:
@@ -514,22 +511,21 @@ def oauth_callback(p):
     email = email.lower() if email else None
     with db_lock, db() as c:
         row = c.execute("SELECT id FROM users WHERE provider=? AND provider_id=?", (p, pid)).fetchone()
-        if not row and email:   # già registrato con la stessa email verificata
+        if not row and email:
             row = c.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
     if row:
         return back(token=session_for(row["id"])["token"])
     pending = signer.dumps({"p": p, "pid": pid, "email": email}, salt="pending")
     return back(signup=pending, name=re.sub(r"[^A-Za-z0-9_.-]", "", name)[:20])
 
-# ---------- pagina del sito ----------
+# ---------- pagina ----------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @app.get("/")
 def home():
-    # se index.html è nella stessa cartella di main.py, il link del servizio mostra l'app
     if os.path.exists(os.path.join(BASE_DIR, "index.html")):
         resp = send_from_directory(BASE_DIR, "index.html")
-        resp.headers["Cache-Control"] = "no-cache"      # dopo un aggiornamento vedi subito la versione nuova
+        resp.headers["Cache-Control"] = "no-cache"
         return resp
     return "Xeno backend attivo"
 
