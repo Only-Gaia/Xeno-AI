@@ -8,6 +8,7 @@ Backend di Xeno: ti dà token + prefisso, il bot resta online da solo.
 Variabili d'ambiente (Environment su Render):
   GEMINI_API_KEY   la tua chiave Gemini
   ENCRYPTION_KEY   chiave per cifrare i token (vedi sotto come crearla)
+  GEMINI_MODEL     (opzionale) modello Gemini, default gemini-3.8-flash
   DB_PATH          percorso del database (con disco Render: /data/bots.db)
   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET   (opzionali) per "Continua con GitHub"
   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   (opzionali) per "Continua con Google"
@@ -28,7 +29,7 @@ from cryptography.fernet import Fernet
 import discord
 import google.generativeai as genai
 
-MODEL = "gemini-2.0-flash"   # metti lo stesso modello che usi già nella tua app
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")   # puoi cambiarlo da Render senza toccare il codice
 DB_PATH = os.environ.get("DB_PATH", "bots.db")
 MIN_AGE = 14
 SESSION_DAYS = 30
