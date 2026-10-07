@@ -49,6 +49,14 @@ pre{background:#0f2a40;color:#e6f2fc;padding:12px;border-radius:10px;overflow:au
 form.bar{display:flex;gap:8px;padding:14px 24px 20px}
 form.bar textarea{resize:none;height:48px}
 form.bar button{padding:0 20px;background:var(--blue);color:#fff;border-radius:12px;font-weight:700}
+form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size:20px}
+#pending{display:flex;gap:8px;flex-wrap:wrap;padding:0 24px}
+.chip{position:relative;background:var(--sky);border:1px solid var(--line);border-radius:12px;padding:6px 10px;font-size:13px;display:flex;align-items:center;gap:6px}
+.chip img{height:56px;border-radius:8px;display:block}
+.chip button{background:var(--white);border-radius:50%;width:22px;height:22px;line-height:20px;font-weight:700;color:var(--ink)}
+.atts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.atts img{max-height:160px;max-width:100%;border-radius:10px}
+.note{font-size:13px;opacity:.8;margin-bottom:4px}
 /* code panel */
 #codepane{width:46%;border-left:1px solid var(--line);display:flex;flex-direction:column;background:#fafdff}
 #codepane header{display:flex;gap:8px;padding:12px;border-bottom:1px solid var(--line);align-items:center}
@@ -101,7 +109,10 @@ form.bar button{padding:0 20px;background:var(--blue);color:#fff;border-radius:1
   <main>
     <div class="col">
       <div id="msgs"></div>
+      <div id="pending" class="hidden"></div>
       <form class="bar" id="form">
+        <button type="button" id="attach" title="Allega foto o PDF">📎</button>
+        <input id="fileIn" type="file" accept="image/*,application/pdf" multiple class="hidden">
         <textarea id="input" placeholder="Scrivi un messaggio..." rows="1"></textarea>
         <button>Invia</button>
       </form>
@@ -142,7 +153,7 @@ form.bar button{padding:0 20px;background:var(--blue);color:#fff;border-radius:1
 const CONFIG = {
   // URL del tuo backend su Render, es. "https://xeno-backend.onrender.com"
   // Lascia "" per la modalità demo.
-  API_URL: "",
+  API_URL: "https://xeno-ai-hxth.onrender.com",
   // Non serve più Firebase: l'accesso al backend usa il codice ACCESS_CODE.
   FIREBASE: null
 };
@@ -228,7 +239,14 @@ const key=()=>"tink_chats_"+user.id;
 const uid=()=>Math.random().toString(36).slice(2,10);
 
 function loadChats(){ chats=JSON.parse(localStorage.getItem(key())||"[]"); renderList(); }
-function saveChats(){ localStorage.setItem(key(),JSON.stringify(chats)); renderList(); }
+function saveChats(){
+  // gli allegati non si salvano nel browser (troppo pesanti): resta solo il numero
+  const slim=chats.map(c=>({...c,msgs:c.msgs.map(m=>{
+    const {files,...r}=m; if(files&&files.length) r.nfiles=files.length; return r;
+  })}));
+  try{ localStorage.setItem(key(),JSON.stringify(slim)); }catch(e){}
+  renderList();
+}
 
 function newConversation(first){
   // la conversazione precedente resta salvata nell'elenco, se ha messaggi
@@ -261,6 +279,17 @@ function renderMsgs(){
 
 function bubble(m){
   const d=document.createElement("div"); d.className="m "+(m.role==="user"?"u":"a");
+  if(m.files&&m.files.length){
+    const row=document.createElement("div"); row.className="atts";
+    m.files.forEach(f=>{
+      if(f.url){ const im=document.createElement("img"); im.src=f.url; row.appendChild(im); }
+      else { const s=document.createElement("span"); s.textContent="📄 "+f.name; row.appendChild(s); }
+    });
+    d.appendChild(row);
+  } else if(m.nfiles){
+    const n=document.createElement("div"); n.className="note"; n.textContent="📎 "+m.nfiles+" allegato/i";
+    d.appendChild(n);
+  }
   const parts=m.content.split("```");
   parts.forEach((p,i)=>{
     if(i%2){ const pre=document.createElement("pre"); pre.textContent=p.replace(/^\w*\n/,""); d.appendChild(pre); }
@@ -294,7 +323,10 @@ function check401(r){
    CHAT
    ============================================================ */
 async function askAI(){
-  const msgs=cur.msgs.map(m=>({role:m.role,content:m.content}));
+  const nf=m=>(m.files&&m.files.length)||m.nfiles||0;
+  const msgs=cur.msgs.map(m=>({role:m.role,content:m.content+(nf(m)?" [con "+nf(m)+" allegato/i]":"")}));
+  const last=cur.msgs[cur.msgs.length-1];
+  const files=(last.files||[]).map(f=>({mime:f.mime,data:f.data}));  // solo gli allegati dell'ultimo messaggio
   if(!CONFIG.API_URL){
     await new Promise(r=>setTimeout(r,500));
     return codeMode
@@ -303,19 +335,75 @@ async function askAI(){
   }
   const r=await fetch(CONFIG.API_URL+"/api/chat",{
     method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},
-    body:JSON.stringify({messages:msgs,mode:codeMode?"code":"chat",userId:user.id})
+    body:JSON.stringify({messages:msgs,files,mode:codeMode?"code":"chat",userId:user.id})
   });
   check401(r);
   if(!r.ok) throw new Error("Errore del server ("+r.status+")");
   return (await r.json()).reply;
 }
 
+/* ---------- allegati (foto e PDF) ---------- */
+let pending=[]; const MAX_FILES=4;
+
+function readB64(file){
+  return new Promise((ok,ko)=>{
+    const r=new FileReader();
+    r.onload=()=>ok(String(r.result).split(",")[1]);
+    r.onerror=()=>ko(new Error("Non riesco a leggere "+file.name));
+    r.readAsDataURL(file);
+  });
+}
+
+async function prepare(file){
+  if(file.type==="application/pdf"){
+    if(file.size>8*1024*1024) throw new Error("PDF troppo grande (max 8 MB).");
+    return {mime:file.type,data:await readB64(file),name:file.name};
+  }
+  if(!file.type.startsWith("image/")) throw new Error("Formato non supportato: "+file.name);
+  // le foto vengono rimpicciolite (max 1280 px) per non appesantire l'invio
+  const img=await new Promise((ok,ko)=>{
+    const i=new Image(); i.onload=()=>ok(i);
+    i.onerror=()=>ko(new Error("Non riesco ad aprire l'immagine "+file.name));
+    i.src=URL.createObjectURL(file);
+  });
+  const s=Math.min(1,1280/Math.max(img.width,img.height));
+  const c=document.createElement("canvas");
+  c.width=Math.round(img.width*s); c.height=Math.round(img.height*s);
+  c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+  URL.revokeObjectURL(img.src);
+  const url=c.toDataURL("image/jpeg",0.82);
+  return {mime:"image/jpeg",data:url.split(",")[1],name:file.name,url};
+}
+
+function renderPending(){
+  const box=$("pending"); box.innerHTML="";
+  pending.forEach((f,i)=>{
+    const d=document.createElement("div"); d.className="chip";
+    if(f.url){ const im=document.createElement("img"); im.src=f.url; d.appendChild(im); }
+    else d.appendChild(document.createTextNode("📄 "+f.name));
+    const x=document.createElement("button"); x.type="button"; x.textContent="×";
+    x.onclick=()=>{ pending.splice(i,1); renderPending(); };
+    d.appendChild(x); box.appendChild(d);
+  });
+  box.classList.toggle("hidden",!pending.length);
+}
+
+$("attach").onclick=()=>$("fileIn").click();
+$("fileIn").onchange=async e=>{
+  for(const f of e.target.files){
+    if(pending.length>=MAX_FILES){ alert("Massimo "+MAX_FILES+" allegati per messaggio."); break; }
+    try{ pending.push(await prepare(f)); }catch(err){ alert(err.message); }
+  }
+  e.target.value=""; renderPending();
+};
+
 $("form").onsubmit=async e=>{
   e.preventDefault();
-  const t=$("input").value.trim(); if(!t) return;
+  const t=$("input").value.trim(); if(!t&&!pending.length) return;
   $("input").value="";
-  cur.msgs.push({role:"user",content:t});
-  if(cur.msgs.length===1) cur.title=t.slice(0,40);
+  const files=pending; pending=[]; renderPending();
+  cur.msgs.push({role:"user",content:t||"Guarda l'allegato.",files});
+  if(cur.msgs.length===1) cur.title=(t||"Allegato").slice(0,40);
   saveChats(); renderMsgs();
   let reply;
   try{ reply=await askAI(); }catch(err){ reply="Non riesco a contattare l'IA: "+err.message; }
