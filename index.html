@@ -12,7 +12,6 @@ body{font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;background:var(-
 button{font:inherit;cursor:pointer;border:0;color:inherit}
 button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .hidden{display:none!important}
-/* login */
 #auth{min-height:100%;display:grid;place-items:center;padding:20px;background:linear-gradient(160deg,var(--sky),var(--white) 60%)}
 .card{width:100%;max-width:380px;background:var(--white);border:1px solid var(--line);border-radius:20px;padding:28px;box-shadow:0 10px 40px #2b8de01f}
 .logo{font-size:28px;font-weight:700;color:var(--blue);margin-bottom:4px}
@@ -24,17 +23,19 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px soli
 input,textarea{font:inherit;width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--white);color:var(--ink)}
 #auth input{margin-bottom:8px}
 .main-btn{width:100%;padding:12px;background:var(--blue);color:#fff;border-radius:12px;font-weight:700}
+.main-btn:disabled{opacity:.6}
 .link{background:none;color:var(--blue);margin-top:12px;width:100%;font-size:14px}
 .err{color:#c0392b;font-size:14px;min-height:20px;margin-top:6px}
-/* app */
 #app{height:100%;display:grid;grid-template-columns:270px 1fr}
 aside{background:var(--sky);border-right:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:8px;overflow:auto}
 aside .logo{margin-bottom:8px}
 .nav{padding:12px;border-radius:12px;background:var(--white);border:1px solid var(--line);text-align:left;font-weight:600}
 .nav:hover,.nav.on{background:var(--sky2)}
 .hist{flex:1;margin-top:10px;display:flex;flex-direction:column;gap:4px}
-.hist h4{font-size:13px;color:var(--mute);font-weight:600;margin-bottom:4px}
-.chat-item{padding:9px 10px;border-radius:10px;background:none;text-align:left;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist h4{font-size:13px;color:var(--mute);font-weight:600}
+.hist small{font-size:12px;color:var(--mute);margin-bottom:4px}
+#list{display:flex;flex-direction:column;gap:4px}
+.chat-item{width:100%;padding:9px 10px;border-radius:10px;background:none;text-align:left;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
 .chat-item:hover{background:#ffffffaa}.chat-item.on{background:var(--white)}
 .me{font-size:13px;color:var(--mute);display:flex;justify-content:space-between;align-items:center;gap:8px}
 .me button{background:none;color:var(--blue);font-size:13px}
@@ -50,9 +51,10 @@ pre{background:#0f2a40;color:#e6f2fc;padding:12px;border-radius:10px;overflow:au
 form.bar{display:flex;gap:8px;padding:14px 24px 20px}
 form.bar textarea{resize:none;height:48px}
 form.bar button{padding:0 20px;background:var(--blue);color:#fff;border-radius:12px;font-weight:700}
+form.bar button:disabled{opacity:.6}
 form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size:20px}
 #pending{display:flex;gap:8px;flex-wrap:wrap;padding:0 24px}
-.chip{position:relative;background:var(--sky);border:1px solid var(--line);border-radius:12px;padding:6px 10px;font-size:13px;display:flex;align-items:center;gap:6px}
+.chip{background:var(--sky);border:1px solid var(--line);border-radius:12px;padding:6px 10px;font-size:13px;display:flex;align-items:center;gap:6px}
 .chip img{height:56px;border-radius:8px;display:block}
 .chip button{background:var(--white);border-radius:50%;width:22px;height:22px;line-height:20px;font-weight:700;color:var(--ink)}
 .atts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
@@ -61,30 +63,26 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
 .typing{display:flex;align-items:center;padding:14px 18px}
 .tri{animation:spin 1s linear infinite;transform-origin:50% 60%}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.tri{animation-duration:3s}}
-/* code panel */
 #codepane{width:46%;border-left:1px solid var(--line);display:flex;flex-direction:column;background:#fafdff}
 #codepane header{display:flex;gap:8px;padding:12px;border-bottom:1px solid var(--line);align-items:center}
 #codepane header b{flex:1}
 #codepane header button{padding:8px 12px;border-radius:10px;background:var(--sky);font-weight:600;font-size:14px}
 #codeview{flex:1;overflow:auto;padding:14px;font:13px/1.5 ui-monospace,Menlo,monospace;white-space:pre}
 #preview{flex:1;border:0;background:#fff}
-/* modal */
 .modal{position:fixed;inset:0;background:#16324a66;display:grid;place-items:center;padding:20px;z-index:5}
 .sheet{background:var(--white);border-radius:20px;padding:24px;max-width:440px;width:100%;max-height:90vh;overflow:auto}
-.plat button:disabled{opacity:.45;cursor:default}
-.out a{color:var(--blue);font-weight:600}
 .sheet h3{margin-bottom:4px}.sheet p{color:var(--mute);margin-bottom:14px;font-size:14px}
 .plat{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
 .plat button{padding:14px;border-radius:12px;background:var(--sky);font-weight:600}
 .plat button.on{background:var(--blue);color:#fff}
+.plat button:disabled{opacity:.45;cursor:default}
 .out{background:var(--sky);border-radius:12px;padding:12px;font-size:14px;margin-top:12px;word-break:break-all}
+.out a{color:var(--blue);font-weight:600}
 @media(max-width:800px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}aside{flex-direction:row;flex-wrap:wrap;padding:10px}.hist,.me,aside .logo{display:none}#codepane{position:fixed;inset:0;width:100%;z-index:4}}
 </style>
 </head>
 <body>
 
-<!-- ========== REGISTRAZIONE / ACCESSO ========== -->
 <section id="auth">
   <div class="card" id="loginCard">
     <div class="logo">Xeno</div>
@@ -107,14 +105,13 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
   </div>
 </section>
 
-<!-- ========== APP ========== -->
 <div id="app" class="hidden">
   <aside>
     <div class="logo">Xeno</div>
     <button class="nav" id="newChat">+ New conversation</button>
     <button class="nav" id="goOnline">Go online</button>
     <button class="nav" id="codeBtn">Code</button>
-    <div class="hist"><h4>Conversazioni salvate</h4><div id="list"></div></div>
+    <div class="hist"><h4>Conversazioni salvate</h4><small>Tieni premuto per eliminare</small><div id="list"></div></div>
     <div class="me"><span id="who"></span><button id="logout">Esci</button></div>
   </aside>
   <main>
@@ -125,7 +122,7 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
         <button type="button" id="attach" title="Allega foto o PDF">📎</button>
         <input id="fileIn" type="file" accept="image/*,application/pdf" multiple class="hidden">
         <textarea id="input" placeholder="Scrivi un messaggio..." rows="1"></textarea>
-        <button>Invia</button>
+        <button id="send">Invia</button>
       </form>
     </div>
     <div id="codepane" class="hidden">
@@ -136,7 +133,6 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
   </main>
 </div>
 
-<!-- ========== GO ONLINE ========== -->
 <div id="onlineModal" class="modal hidden">
   <div class="sheet">
     <h3>Go online</h3>
@@ -158,24 +154,13 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
 </div>
 
 <script>
-/* ============================================================
-   CONFIGURAZIONE  (modifica solo questa parte)
-   ============================================================ */
-const CONFIG = {
-  // URL del tuo backend su Render, es. "https://xeno-backend.onrender.com"
-  // Lascia "" per la modalità demo.
-  API_URL: "https://xeno-ai-hxth.onrender.com",
-  // Gli account sono gestiti dal backend (email, Google, GitHub).
-};
+const CONFIG = { API_URL: "https://xeno-ai-hxth.onrender.com" };
+CONFIG.API_URL = CONFIG.API_URL.replace(/\/+$/, "");
 
-CONFIG.API_URL = CONFIG.API_URL.replace(/\/+$/, ""); // toglie lo "/" finale
-
-/* ============================================================
-   ACCOUNT (gestiti dal backend)
-   ============================================================ */
 const $ = id => document.getElementById(id);
 let user=null, session=null, pendingSocial=null, pendingEmail=null;
 
+/* ---------- account ---------- */
 async function api(path,body){
   const r=await fetch(CONFIG.API_URL+path,{
     method:body?"POST":"GET",
@@ -192,11 +177,10 @@ function show(card){
 }
 
 async function initAuth(){
-  // ritorno da Google/GitHub: il risultato arriva nel "#" dell'indirizzo
   const h=new URLSearchParams(location.hash.slice(1));
   if(location.hash) history.replaceState(null,"",location.pathname);
   if(h.get("autherr")) showErr(h.get("autherr"));
-  if(h.get("signup")){            // account nuovo: chiedo nome utente ed età
+  if(h.get("signup")){
     pendingSocial=h.get("signup"); pendingEmail=null;
     $("uname").value=h.get("name")||""; show("profile"); return;
   }
@@ -216,8 +200,7 @@ async function loadProviders(){
   try{
     const r=await api("/api/auth/providers");
     document.querySelectorAll(".prov").forEach(b=>{
-      const p=b.dataset.p;
-      if(!r.d[p]){ b.disabled=true; b.textContent+=" (non attivo)"; }
+      if(!r.d[b.dataset.p]){ b.disabled=true; b.textContent+=" (non attivo)"; }
     });
   }catch(e){}
 }
@@ -229,9 +212,8 @@ async function emailAuth(){
   $("emailGo").disabled=true;
   try{
     const r=await api("/api/auth/email",{email,password:pass});
-    if(r.ok&&r.d.need_profile){        // email nuova: serve nome utente ed età
-      pendingEmail={email,password:pass}; pendingSocial=null; $("uname").value=""; show("profile");
-    } else if(r.ok) startSession(r.d);  // già registrato: entra
+    if(r.ok&&r.d.need_profile){ pendingEmail={email,password:pass}; pendingSocial=null; $("uname").value=""; show("profile"); }
+    else if(r.ok) startSession(r.d);
     else showErr(r.d.error||"Errore, riprova.");
   }catch(e){ showErr("Backend non raggiungibile, riprova."); }
   finally{ $("emailGo").disabled=false; }
@@ -256,14 +238,13 @@ function enter(u){
   loadChats(); newConversation(true);
 }
 function leave(){
-  user=null; session=null; pendingEmail=null; pendingSocial=null;
+  user=null; session=null; pendingEmail=null; pendingSocial=null; waitingChat=null;
   localStorage.removeItem("xeno_session");
   $("onlineModal").classList.add("hidden");
   $("app").classList.add("hidden"); $("auth").classList.remove("hidden");
   $("pass").value=""; show("login");
 }
 
-// Google / GitHub: si apre la pagina di accesso del servizio, non la nostra
 document.querySelectorAll(".prov").forEach(b=>b.onclick=()=>{ location.href=CONFIG.API_URL+"/api/auth/"+b.dataset.p+"/start"; });
 $("emailGo").onclick=emailAuth;
 $("pass").onkeydown=e=>{ if(e.key==="Enter") emailAuth(); };
@@ -272,16 +253,17 @@ $("age").onkeydown=$("uname").onkeydown=e=>{ if(e.key==="Enter") profileGo(); };
 $("profileBack").onclick=()=>{ pendingEmail=null; pendingSocial=null; show("login"); };
 $("logout").onclick=leave;
 
-/* ============================================================
-   CONVERSAZIONI (salvate per utente nel browser)
-   ============================================================ */
+/* ---------- conversazioni ---------- */
 let chats=[], cur=null, codeMode=false, waitingChat=null;
 const key=()=>"tink_chats_"+user.id;
 const uid=()=>Math.random().toString(36).slice(2,10);
 
-function loadChats(){ chats=JSON.parse(localStorage.getItem(key())||"[]"); renderList(); }
+function loadChats(){
+  try{ chats=JSON.parse(localStorage.getItem(key())||"[]"); }catch(e){ chats=[]; }
+  renderList();
+}
 function saveChats(){
-  // gli allegati non si salvano nel browser (troppo pesanti): resta solo il numero
+  if(!user) return;
   const slim=chats.map(c=>({...c,msgs:c.msgs.map(m=>{
     const {files,...r}=m; if(files&&files.length) r.nfiles=files.length; return r;
   })}));
@@ -290,20 +272,36 @@ function saveChats(){
 }
 
 function newConversation(first){
-  // la conversazione precedente resta salvata nell'elenco, se ha messaggi
   cur={id:uid(),title:"Nuova conversazione",msgs:[]};
   chats.unshift(cur);
   if(!first) chats=chats.filter(c=>c===cur||c.msgs.length);
   renderList(); renderMsgs();
 }
 
+/* tenendo premuto (o col tasto destro) su una chat salvata si può eliminare */
+let pressTimer=null, longPressed=false;
+function deleteChat(c){
+  if(!confirm("Eliminare la conversazione «"+c.title+"»?")) return;
+  chats=chats.filter(x=>x!==c);
+  if(cur===c) newConversation(false);
+  saveChats(); renderMsgs();
+}
 function renderList(){
   const box=$("list"); box.innerHTML="";
   chats.filter(c=>c.msgs.length).forEach(c=>{
     const b=document.createElement("button");
     b.className="chat-item"+(cur&&c.id===cur.id?" on":"");
     b.textContent=c.title;
-    b.onclick=()=>{ cur=c; renderMsgs(); renderList(); };
+    let sx=0, sy=0;
+    const cancel=()=>{ clearTimeout(pressTimer); pressTimer=null; };
+    b.onpointerdown=e=>{
+      longPressed=false; sx=e.clientX; sy=e.clientY; cancel();
+      pressTimer=setTimeout(()=>{ longPressed=true; if(navigator.vibrate) navigator.vibrate(20); deleteChat(c); },600);
+    };
+    b.onpointermove=e=>{ if(Math.abs(e.clientX-sx)>10||Math.abs(e.clientY-sy)>10) cancel(); };
+    b.onpointerup=b.onpointerleave=b.onpointercancel=cancel;
+    b.oncontextmenu=e=>{ e.preventDefault(); cancel(); longPressed=true; deleteChat(c); };
+    b.onclick=()=>{ if(longPressed){ longPressed=false; return; } cur=c; renderMsgs(); renderList(); };
     box.appendChild(b);
   });
 }
@@ -315,7 +313,7 @@ function renderMsgs(){
     return;
   }
   cur.msgs.forEach(m=>box.appendChild(bubble(m)));
-  if(waitingChat&&cur===waitingChat){      // triangolino che gira mentre l'IA scrive
+  if(waitingChat&&cur===waitingChat){
     const t=document.createElement("div"); t.className="m a typing";
     t.innerHTML='<svg class="tri" viewBox="0 0 24 24" width="24" height="24" aria-label="L\'IA sta scrivendo"><polygon points="12,3 22,20 2,20" fill="#2b8de0"/></svg>';
     box.appendChild(t);
@@ -336,53 +334,39 @@ function bubble(m){
     const n=document.createElement("div"); n.className="note"; n.textContent="📎 "+m.nfiles+" allegato/i";
     d.appendChild(n);
   }
-  const parts=m.content.split("```");
-  parts.forEach((p,i)=>{
+  String(m.content||"").split("```").forEach((p,i)=>{
     if(i%2){ const pre=document.createElement("pre"); pre.textContent=p.replace(/^\w*\n/,""); d.appendChild(pre); }
     else d.appendChild(document.createTextNode(p));
   });
   return d;
 }
 
-/* ============================================================
-   SESSIONE
-   ============================================================ */
+/* ---------- chat ---------- */
 async function authHeaders(){ return session?{Authorization:"Bearer "+session}:{}; }
-function check401(r){
-  if(r.status===401){ leave(); throw new Error("sessione scaduta, accedi di nuovo"); }
-}
+function check401(r){ if(r.status===401){ leave(); throw new Error("sessione scaduta, accedi di nuovo"); } }
 
-/* ============================================================
-   CHAT
-   ============================================================ */
-async function askAI(){
+async function askAI(chat){
   const nf=m=>(m.files&&m.files.length)||m.nfiles||0;
-  const msgs=cur.msgs.map(m=>({role:m.role,content:m.content+(nf(m)?" [con "+nf(m)+" allegato/i]":"")}));
-  const last=cur.msgs[cur.msgs.length-1];
-  const files=(last.files||[]).map(f=>({mime:f.mime,data:f.data}));  // solo gli allegati dell'ultimo messaggio
-  if(!CONFIG.API_URL){
-    await new Promise(r=>setTimeout(r,500));
-    return codeMode
-      ? "Modalità demo. Collega il tuo backend in CONFIG.API_URL. Intanto ecco un esempio:\n```html\n<h1>Ciao dal Code di Xeno!</h1>\n```"
-      : "Modalità demo: collega il tuo backend in CONFIG.API_URL per avere risposte vere.";
-  }
-  const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),100000);   // dopo 100 s smette di aspettare
-  let r;
+  const msgs=chat.msgs.map(m=>({role:m.role,content:m.content+(nf(m)?" [con "+nf(m)+" allegato/i]":"")}));
+  const last=chat.msgs[chat.msgs.length-1];
+  const files=(last.files||[]).map(f=>({mime:f.mime,data:f.data}));
+  const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),70000);   // dopo 70 s smette di aspettare
+  let r, d={};
   try{
     r=await fetch(CONFIG.API_URL+"/api/chat",{
       method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},
-      body:JSON.stringify({messages:msgs,files,mode:codeMode?"code":"chat",userId:user.id}),
+      body:JSON.stringify({messages:msgs,files,mode:codeMode?"code":"chat"}),
       signal:ctl.signal
     });
+    check401(r);
+    try{ d=await r.json(); }catch(_){}      // anche la lettura della risposta resta sotto il limite di tempo
   } finally { clearTimeout(timer); }
-  check401(r);
-  if(!r.ok){ let d={}; try{ d=await r.json(); }catch(_){} throw new Error(d.error||"Errore del server ("+r.status+")"); }
-  return (await r.json()).reply||"(L'IA non ha risposto, riprova.)";
+  if(!r.ok) throw new Error(d.error||"Errore del server ("+r.status+")");
+  return d.reply||"(L'IA non ha risposto, riprova.)";
 }
 
-/* ---------- allegati (foto e PDF) ---------- */
+/* ---------- allegati ---------- */
 let pending=[]; const MAX_FILES=4;
-
 function readB64(file){
   return new Promise((ok,ko)=>{
     const r=new FileReader();
@@ -391,14 +375,12 @@ function readB64(file){
     r.readAsDataURL(file);
   });
 }
-
 async function prepare(file){
   if(file.type==="application/pdf"){
     if(file.size>8*1024*1024) throw new Error("PDF troppo grande (max 8 MB).");
     return {mime:file.type,data:await readB64(file),name:file.name};
   }
   if(!file.type.startsWith("image/")) throw new Error("Formato non supportato: "+file.name);
-  // le foto vengono rimpicciolite (max 1280 px) per non appesantire l'invio
   const img=await new Promise((ok,ko)=>{
     const i=new Image(); i.onload=()=>ok(i);
     i.onerror=()=>ko(new Error("Non riesco ad aprire l'immagine "+file.name));
@@ -412,7 +394,6 @@ async function prepare(file){
   const url=c.toDataURL("image/jpeg",0.82);
   return {mime:"image/jpeg",data:url.split(",")[1],name:file.name,url};
 }
-
 function renderPending(){
   const box=$("pending"); box.innerHTML="";
   pending.forEach((f,i)=>{
@@ -425,7 +406,6 @@ function renderPending(){
   });
   box.classList.toggle("hidden",!pending.length);
 }
-
 $("attach").onclick=()=>$("fileIn").click();
 $("fileIn").onchange=async e=>{
   for(const f of e.target.files){
@@ -437,29 +417,30 @@ $("fileIn").onchange=async e=>{
 
 $("form").onsubmit=async e=>{
   e.preventDefault();
-  if(waitingChat) return;                      // aspetta la risposta prima di inviare ancora
+  if(waitingChat) return;
   const t=$("input").value.trim(); if(!t&&!pending.length) return;
   $("input").value="";
   const files=pending; pending=[]; renderPending();
   const chat=cur;
   chat.msgs.push({role:"user",content:t||"Guarda l'allegato.",files});
   if(chat.msgs.length===1) chat.title=(t||"Allegato").slice(0,40);
-  waitingChat=chat; $("form").querySelector("button:last-child").disabled=true;
+  waitingChat=chat; $("send").disabled=true;
   saveChats(); renderMsgs();
   let reply;
-  try{ reply=await askAI(); }
-  catch(err){ reply="Non riesco a contattare l'IA: "+(err.name==="AbortError"?"tempo scaduto, riprova.":err.message); }
+  try{ reply=await askAI(chat); }
+  catch(err){
+    reply="Non riesco a contattare l'IA: "+(err.name==="AbortError"?"tempo scaduto, riprova.":err.message);
+  }
+  waitingChat=null; $("send").disabled=false;     // il triangolo si ferma sempre
+  if(!user) return;                                // sessione scaduta nel frattempo
   chat.msgs.push({role:"assistant",content:reply});
-  waitingChat=null; $("form").querySelector("button:last-child").disabled=false;
   saveChats(); if(cur===chat) renderMsgs();
   if(codeMode) showCode(reply);
 };
 $("input").onkeydown=e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); $("form").requestSubmit(); } };
 $("newChat").onclick=()=>newConversation(false);
 
-/* ============================================================
-   CODE: l'IA scrive codice, lo vedi a destra, lo copi o lo provi
-   ============================================================ */
+/* ---------- Code ---------- */
 let lastCode="";
 function showCode(text){
   const parts=text.split("```"); if(parts.length<3) return;
@@ -475,15 +456,12 @@ $("codeBtn").onclick=()=>{
 $("closeCode").onclick=()=>{ codeMode=false; $("codeBtn").classList.remove("on"); $("codepane").classList.add("hidden"); };
 $("copyCode").onclick=()=>navigator.clipboard&&navigator.clipboard.writeText(lastCode);
 $("runCode").onclick=()=>{
-  const p=$("preview"), showing=!p.classList.contains("hidden");
-  if(showing){ p.classList.add("hidden"); $("codeview").classList.remove("hidden"); return; }
+  const p=$("preview");
+  if(!p.classList.contains("hidden")){ p.classList.add("hidden"); $("codeview").classList.remove("hidden"); return; }
   p.srcdoc=lastCode; p.classList.remove("hidden"); $("codeview").classList.add("hidden");
 };
 
-/* ============================================================
-   GO ONLINE: pubblica l'IA su Discord, WhatsApp, Telegram, sito web
-   Il backend crea il bot e restituisce il link / lo script da usare.
-   ============================================================ */
+/* ---------- Go online ---------- */
 let platform="discord";
 document.querySelectorAll("#plat button").forEach(b=>{
   b.onclick=()=>{
@@ -493,26 +471,20 @@ document.querySelectorAll("#plat button").forEach(b=>{
   };
 });
 $("plat").firstElementChild.classList.add("on");
-$("goOnline").onclick=()=>{
-  $("onlineOut").classList.add("hidden"); $("onlineModal").classList.remove("hidden");
-  refreshBotState();
-};
+$("goOnline").onclick=()=>{ $("onlineOut").classList.add("hidden"); $("onlineModal").classList.remove("hidden"); refreshBotState(); };
+$("closeOnline").onclick=()=>$("onlineModal").classList.add("hidden");
 
 async function refreshBotState(){
   const el=$("botState"); el.textContent="";
-  if(!CONFIG.API_URL) return;
   try{
     const r=await fetch(CONFIG.API_URL+"/api/bot-status",{headers:await authHeaders()});
     if(r.status===401){ leave(); return; }
     const d=await r.json();
-    el.textContent = r.ok
-      ? "Stato del bot: "+d.state+(d.error?" ("+d.error+")":"")
-      : (d.error||"");
+    el.textContent=r.ok?"Stato del bot: "+d.state+(d.error?" ("+d.error+")":""):(d.error||"");
   }catch(e){ el.textContent="Backend non raggiungibile."; }
 }
 
 $("stopBot").onclick=async()=>{
-  if(!CONFIG.API_URL) return;
   if(!confirm("Spegnere il bot e cancellare il token salvato?")) return;
   try{
     const r=await fetch(CONFIG.API_URL+"/api/stop-bot",{method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},body:"{}"});
@@ -521,7 +493,6 @@ $("stopBot").onclick=async()=>{
     $("botState").textContent=d.message||d.error||"";
   }catch(e){ $("botState").textContent="Non sono riuscito a fermare il bot."; }
 };
-$("closeOnline").onclick=()=>$("onlineModal").classList.add("hidden");
 
 $("publish").onclick=async()=>{
   const out=$("onlineOut"), btn=$("publish");
@@ -529,7 +500,6 @@ $("publish").onclick=async()=>{
   const token=$("botToken").value.trim(), prefix=$("botPrefix").value.trim()||"!";
   if(platform!=="discord"){ out.textContent="Per ora è disponibile solo Discord."; return; }
   if(!token){ out.textContent="Incolla il token del bot."; return; }
-  if(!CONFIG.API_URL){ out.textContent="Modalità demo: scrivi l'indirizzo del backend in CONFIG.API_URL."; return; }
   btn.disabled=true; btn.textContent="Sto accendendo il bot (fino a 30 secondi)...";
   try{
     const r=await fetch(CONFIG.API_URL+"/api/go-online",{
@@ -548,9 +518,9 @@ $("publish").onclick=async()=>{
     }
     refreshBotState();
   }catch(e){
-    out.textContent = e instanceof TypeError
-      ? "Non riesco a raggiungere il backend: controlla CONFIG.API_URL e che sia acceso."
-      : "Non è stato possibile andare online: "+e.message;
+    out.textContent=e instanceof TypeError
+      ?"Non riesco a raggiungere il backend: controlla che sia acceso."
+      :"Non è stato possibile andare online: "+e.message;
   }finally{ btn.disabled=false; btn.textContent="Metti online"; }
 };
 
