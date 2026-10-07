@@ -16,7 +16,7 @@ Crea ENCRYPTION_KEY una volta sola, da terminale:
 NON perderla e NON cambiarla: senza di lei i token salvati non si leggono più.
 """
 import os, asyncio, threading, time, sqlite3, hmac, base64
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from cryptography.fernet import Fernet
 import discord
@@ -236,8 +236,13 @@ def bot_status():
     online = bool(r) and not r["client"].is_closed()
     return jsonify(state="online" if online else "spento", error=row["last_error"])
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 @app.get("/")
 def home():
+    # se index.html è nella stessa cartella di main.py, il link del servizio mostra l'app
+    if os.path.exists(os.path.join(BASE_DIR, "index.html")):
+        return send_from_directory(BASE_DIR, "index.html")
     return "Xeno backend attivo"
 
 threading.Thread(target=watchdog, daemon=True).start()
