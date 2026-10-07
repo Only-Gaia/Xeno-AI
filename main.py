@@ -15,7 +15,7 @@ Crea ENCRYPTION_KEY una volta sola, da terminale:
   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 NON perderla e NON cambiarla: senza di lei i token salvati non si leggono più.
 """
-import os, asyncio, threading, time, sqlite3, hmac
+import os, asyncio, threading, time, sqlite3, hmac, base64
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from cryptography.fernet import Fernet
@@ -34,6 +34,7 @@ model = genai.GenerativeModel(
 fernet = Fernet(os.environ["ENCRYPTION_KEY"].encode())
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024   # allegati: max 25 MB a richiesta
 CORS(app)
 
 # ---------- database ----------
@@ -84,6 +85,8 @@ def ask_gemini(text):
     except Exception as e:
         return "Errore dell'IA: " + str(e)[:200]
 
+ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"}
+
 @app.post("/api/chat")
 def chat():
     if not current_user():
@@ -92,8 +95,17 @@ def chat():
     history = "\n".join(f"{m['role']}: {m['content']}" for m in d.get("messages", []))
     if d.get("mode") == "code":
         history = "Rispondi con codice completo in un blocco ``` e una breve spiegazione.\n" + history
+    parts = [history]
+    for f in (d.get("files") or [])[:4]:          # max 4 allegati
+        mime = f.get("mime")
+        if mime not in ALLOWED_MIME:
+            continue
+        try:
+            parts.append({"mime_type": mime, "data": base64.b64decode(f.get("data", ""))})
+        except Exception:
+            return jsonify(error="Allegato non valido."), 400
     try:
-        return jsonify(reply=model.generate_content(history).text)
+        return jsonify(reply=model.generate_content(parts).text)
     except Exception as e:
         return jsonify(error=str(e)[:200]), 500
 
