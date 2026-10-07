@@ -17,7 +17,7 @@ Crea ENCRYPTION_KEY una volta sola, da terminale:
   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 NON perderla e NON cambiarla: senza di lei i token salvati non si leggono più.
 """
-import os, asyncio, threading, time, sqlite3, base64, hashlib, re, secrets
+import os, asyncio, threading, time, sqlite3, base64, hashlib, re, secrets, traceback
 from urllib.parse import urlencode, quote
 import requests
 from flask import Flask, request, jsonify, send_from_directory, redirect
@@ -133,9 +133,11 @@ def chat():
         except Exception:
             return jsonify(error="Allegato non valido."), 400
     try:
-        return jsonify(reply=model.generate_content(parts).text)
+        res = model.generate_content(parts, request_options={"timeout": 90})
+        return jsonify(reply=res.text)
     except Exception as e:
-        return jsonify(error=str(e)[:200]), 500
+        traceback.print_exc()          # compare nei Logs di Render
+        return jsonify(error=str(e)[:300]), 500
 
 # ---------- bot Discord ----------
 running = {}   # user_id -> {"client", "loop"}
