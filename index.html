@@ -19,6 +19,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px soli
 .sub{color:var(--mute);margin-bottom:20px}
 .prov{width:100%;padding:12px;margin-bottom:8px;background:var(--white);border:1px solid var(--line);border-radius:12px;font-weight:600}
 .prov:hover{background:var(--sky)}
+.prov:disabled{opacity:.45;cursor:default}
 .or{text-align:center;color:var(--mute);margin:14px 0;font-size:14px}
 input,textarea{font:inherit;width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--white);color:var(--ink)}
 #auth input{margin-bottom:8px}
@@ -81,18 +82,26 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
 
 <!-- ========== REGISTRAZIONE / ACCESSO ========== -->
 <section id="auth">
-  <div class="card">
+  <div class="card" id="loginCard">
     <div class="logo">Xeno</div>
-    <p class="sub" id="authSub">Crea il tuo account per iniziare a chattare.</p>
+    <p class="sub">Accedi o crea il tuo account per iniziare a chattare.</p>
     <button class="prov" data-p="google">Continua con Google</button>
     <button class="prov" data-p="github">Continua con GitHub</button>
-    <button class="prov" data-p="apple">Continua con Apple</button>
+    <button class="prov" data-p="apple" disabled>Continua con Apple (presto)</button>
     <div class="or">oppure con la tua email</div>
     <input id="email" type="email" placeholder="Email" autocomplete="email">
     <input id="pass" type="password" placeholder="Password (min. 6 caratteri)" autocomplete="current-password">
-    <button class="main-btn" id="emailGo">Registrati</button>
+    <button class="main-btn" id="emailGo">Continua</button>
     <div class="err" id="err"></div>
-    <button class="link" id="swap">Hai già un account? Accedi</button>
+  </div>
+  <div class="card hidden" id="profileCard">
+    <div class="logo">Xeno</div>
+    <p class="sub">Ultimo passo: scegli il tuo nome utente e dicci la tua età.</p>
+    <input id="uname" placeholder="Nome utente" maxlength="20" autocomplete="username">
+    <input id="age" type="number" inputmode="numeric" min="1" max="120" placeholder="La tua età">
+    <button class="main-btn" id="profileGo">Crea account</button>
+    <div class="err" id="err2"></div>
+    <button class="link" id="profileBack">Indietro</button>
   </div>
 </section>
 
@@ -154,82 +163,112 @@ const CONFIG = {
   // URL del tuo backend su Render, es. "https://xeno-backend.onrender.com"
   // Lascia "" per la modalità demo.
   API_URL: "https://xeno-ai-hxth.onrender.com",
-  // Non serve più Firebase: l'accesso al backend usa il codice ACCESS_CODE.
-  FIREBASE: null
+  // Gli account sono gestiti dal backend (email, Google, GitHub).
 };
 
 CONFIG.API_URL = CONFIG.API_URL.replace(/\/+$/, ""); // toglie lo "/" finale
 
 /* ============================================================
-   ACCOUNT
-   Con Firebase: login reale. Senza: modalità demo (solo in questo browser).
+   ACCOUNT (gestiti dal backend)
    ============================================================ */
 const $ = id => document.getElementById(id);
-let user = null, signup = true, fb = null;
+let user=null, session=null, pendingSocial=null, pendingEmail=null;
 
-function loadScript(src){return new Promise((ok,ko)=>{const s=document.createElement("script");s.src=src;s.onload=ok;s.onerror=ko;document.head.appendChild(s)})}
-
-async function initAuth(){
-  if(CONFIG.FIREBASE){
-    const v="10.12.2",base=`https://www.gstatic.com/firebasejs/${v}/`;
-    await loadScript(base+"firebase-app-compat.js");
-    await loadScript(base+"firebase-auth-compat.js");
-    firebase.initializeApp(CONFIG.FIREBASE);
-    fb = firebase.auth();
-    fb.onAuthStateChanged(u=>{ if(u) enter({id:u.uid,name:u.displayName||u.email}); else leave(); });
-  } else {
-    const saved = localStorage.getItem("tink_user");
-    if(saved) enter(JSON.parse(saved));
-  }
+async function api(path,body){
+  const r=await fetch(CONFIG.API_URL+path,{
+    method:body?"POST":"GET",
+    headers:{"Content-Type":"application/json",...(session?{Authorization:"Bearer "+session}:{})},
+    body:body?JSON.stringify(body):undefined
+  });
+  let d={}; try{ d=await r.json(); }catch(_){}
+  return {ok:r.ok,status:r.status,d};
+}
+function showErr(m,id){ $(id||"err").textContent=m||""; }
+function show(card){
+  $("loginCard").classList.toggle("hidden",card!=="login");
+  $("profileCard").classList.toggle("hidden",card!=="profile");
 }
 
-function showErr(m){$("err").textContent=m}
-
-async function provider(p){
-  showErr("");
-  if(!fb){ // demo
-    return enter({id:"demo-"+p,name:"Utente "+p});
+async function initAuth(){
+  // ritorno da Google/GitHub: il risultato arriva nel "#" dell'indirizzo
+  const h=new URLSearchParams(location.hash.slice(1));
+  if(location.hash) history.replaceState(null,"",location.pathname);
+  if(h.get("autherr")) showErr(h.get("autherr"));
+  if(h.get("signup")){            // account nuovo: chiedo nome utente ed età
+    pendingSocial=h.get("signup"); pendingEmail=null;
+    $("uname").value=h.get("name")||""; show("profile"); return;
   }
+  if(h.get("token")){ session=h.get("token"); localStorage.setItem("xeno_session",session); }
+  else session=localStorage.getItem("xeno_session");
+  if(session){
+    try{
+      const r=await api("/api/auth/me");
+      if(r.ok) return enter(r.d.user);
+      session=null; localStorage.removeItem("xeno_session");
+    }catch(e){ session=null; showErr("Backend non raggiungibile, riprova tra poco."); }
+  }
+  loadProviders();
+}
+
+async function loadProviders(){
   try{
-    const prov = p==="google" ? new firebase.auth.GoogleAuthProvider()
-               : p==="github" ? new firebase.auth.GithubAuthProvider()
-               : new firebase.auth.OAuthProvider("apple.com");
-    await fb.signInWithPopup(prov);
-  }catch(e){showErr(e.message)}
+    const r=await api("/api/auth/providers");
+    document.querySelectorAll(".prov").forEach(b=>{
+      const p=b.dataset.p; if(p==="apple") return;
+      if(!r.d[p]){ b.disabled=true; b.textContent+=" (non attivo)"; }
+    });
+  }catch(e){}
 }
 
 async function emailAuth(){
-  const email=$("email").value.trim(), pass=$("pass").value;
+  const email=$("email").value.trim().toLowerCase(), pass=$("pass").value;
   showErr("");
   if(!email.includes("@")||pass.length<6) return showErr("Inserisci un'email valida e una password di almeno 6 caratteri.");
-  if(!fb) return enter({id:"demo-"+email,name:email});
+  $("emailGo").disabled=true;
   try{
-    signup ? await fb.createUserWithEmailAndPassword(email,pass)
-           : await fb.signInWithEmailAndPassword(email,pass);
-  }catch(e){showErr(e.message)}
+    const r=await api("/api/auth/email",{email,password:pass});
+    if(r.ok&&r.d.need_profile){        // email nuova: serve nome utente ed età
+      pendingEmail={email,password:pass}; pendingSocial=null; $("uname").value=""; show("profile");
+    } else if(r.ok) startSession(r.d);  // già registrato: entra
+    else showErr(r.d.error||"Errore, riprova.");
+  }catch(e){ showErr("Backend non raggiungibile, riprova."); }
+  finally{ $("emailGo").disabled=false; }
 }
+
+async function profileGo(){
+  const username=$("uname").value.trim(), age=$("age").value;
+  showErr("","err2");
+  const body=pendingSocial?{pending:pendingSocial,username,age}:{...pendingEmail,username,age};
+  try{
+    const r=await api(pendingSocial?"/api/auth/complete":"/api/auth/register",body);
+    if(r.ok) startSession(r.d); else showErr(r.d.error||"Errore, riprova.","err2");
+  }catch(e){ showErr("Backend non raggiungibile, riprova.","err2"); }
+}
+
+function startSession(d){ session=d.token; localStorage.setItem("xeno_session",session); enter(d.user); }
 
 function enter(u){
   user=u;
-  if(!fb) localStorage.setItem("tink_user",JSON.stringify(u));
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
-  $("who").textContent=u.name;
+  $("who").textContent=u.username;
   loadChats(); newConversation(true);
 }
 function leave(){
-  user=null; localStorage.removeItem("tink_user"); localStorage.removeItem("xeno_code");
+  user=null; session=null; pendingEmail=null; pendingSocial=null;
+  localStorage.removeItem("xeno_session");
+  $("onlineModal").classList.add("hidden");
   $("app").classList.add("hidden"); $("auth").classList.remove("hidden");
+  $("pass").value=""; show("login");
 }
 
-document.querySelectorAll(".prov").forEach(b=>b.onclick=()=>provider(b.dataset.p));
+// Google / GitHub: si apre la pagina di accesso del servizio, non la nostra
+document.querySelectorAll(".prov").forEach(b=>b.onclick=()=>{ location.href=CONFIG.API_URL+"/api/auth/"+b.dataset.p+"/start"; });
 $("emailGo").onclick=emailAuth;
-$("swap").onclick=()=>{
-  signup=!signup;
-  $("emailGo").textContent=signup?"Registrati":"Accedi";
-  $("swap").textContent=signup?"Hai già un account? Accedi":"Non hai un account? Registrati";
-  $("authSub").textContent=signup?"Crea il tuo account per iniziare a chattare.":"Bentornato! Accedi al tuo account.";
-};
-$("logout").onclick=()=>fb?fb.signOut():leave();
+$("pass").onkeydown=e=>{ if(e.key==="Enter") emailAuth(); };
+$("profileGo").onclick=profileGo;
+$("age").onkeydown=$("uname").onkeydown=e=>{ if(e.key==="Enter") profileGo(); };
+$("profileBack").onclick=()=>{ pendingEmail=null; pendingSocial=null; show("login"); };
+$("logout").onclick=leave;
 
 /* ============================================================
    CONVERSAZIONI (salvate per utente nel browser)
@@ -299,24 +338,11 @@ function bubble(m){
 }
 
 /* ============================================================
-   CODICE DI ACCESSO
-   Il backend accetta solo chi manda il codice ACCESS_CODE.
-   Il browser lo chiede una volta e lo ricorda; se è sbagliato
-   (errore 401) viene dimenticato e richiesto di nuovo.
+   SESSIONE
    ============================================================ */
-async function authHeaders(){
-  let c=localStorage.getItem("xeno_code");
-  if(!c){
-    c=(prompt("Codice di accesso:")||"").trim();
-    if(c) localStorage.setItem("xeno_code",c);
-  }
-  return c ? {Authorization:"Bearer "+c} : {};
-}
+async function authHeaders(){ return session?{Authorization:"Bearer "+session}:{}; }
 function check401(r){
-  if(r.status===401){
-    localStorage.removeItem("xeno_code");
-    throw new Error("codice di accesso sbagliato, riprova");
-  }
+  if(r.status===401){ leave(); throw new Error("sessione scaduta, accedi di nuovo"); }
 }
 
 /* ============================================================
@@ -338,7 +364,7 @@ async function askAI(){
     body:JSON.stringify({messages:msgs,files,mode:codeMode?"code":"chat",userId:user.id})
   });
   check401(r);
-  if(!r.ok) throw new Error("Errore del server ("+r.status+")");
+  if(!r.ok){ let d={}; try{ d=await r.json(); }catch(_){} throw new Error(d.error||"Errore del server ("+r.status+")"); }
   return (await r.json()).reply;
 }
 
@@ -460,7 +486,7 @@ async function refreshBotState(){
   if(!CONFIG.API_URL) return;
   try{
     const r=await fetch(CONFIG.API_URL+"/api/bot-status",{headers:await authHeaders()});
-    if(r.status===401){ localStorage.removeItem("xeno_code"); el.textContent="Codice di accesso sbagliato, riapri questa finestra."; return; }
+    if(r.status===401){ leave(); return; }
     const d=await r.json();
     el.textContent = r.ok
       ? "Stato del bot: "+d.state+(d.error?" ("+d.error+")":"")
@@ -473,7 +499,7 @@ $("stopBot").onclick=async()=>{
   if(!confirm("Spegnere il bot e cancellare il token salvato?")) return;
   try{
     const r=await fetch(CONFIG.API_URL+"/api/stop-bot",{method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},body:"{}"});
-    if(r.status===401){ localStorage.removeItem("xeno_code"); $("botState").textContent="Codice di accesso sbagliato, riprova."; return; }
+    if(r.status===401){ leave(); return; }
     const d=await r.json();
     $("botState").textContent=d.message||d.error||"";
   }catch(e){ $("botState").textContent="Non sono riuscito a fermare il bot."; }
