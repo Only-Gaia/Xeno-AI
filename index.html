@@ -85,9 +85,7 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
   <div class="card" id="loginCard">
     <div class="logo">Xeno</div>
     <p class="sub">Accedi o crea il tuo account per iniziare a chattare.</p>
-    <button class="prov" data-p="google">Continua con Google</button>
     <button class="prov" data-p="github">Continua con GitHub</button>
-    <button class="prov" data-p="apple" disabled>Continua con Apple (presto)</button>
     <div class="or">oppure con la tua email</div>
     <input id="email" type="email" placeholder="Email" autocomplete="email">
     <input id="pass" type="password" placeholder="Password (min. 6 caratteri)" autocomplete="current-password">
@@ -214,7 +212,7 @@ async function loadProviders(){
   try{
     const r=await api("/api/auth/providers");
     document.querySelectorAll(".prov").forEach(b=>{
-      const p=b.dataset.p; if(p==="apple") return;
+      const p=b.dataset.p;
       if(!r.d[p]){ b.disabled=true; b.textContent+=" (non attivo)"; }
     });
   }catch(e){}
