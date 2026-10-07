@@ -58,6 +58,10 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
 .atts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
 .atts img{max-height:160px;max-width:100%;border-radius:10px}
 .note{font-size:13px;opacity:.8;margin-bottom:4px}
+.typing{display:flex;align-items:center;padding:14px 18px}
+.tri{animation:spin 1s linear infinite;transform-origin:50% 60%}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.tri{animation-duration:3s}}
 /* code panel */
 #codepane{width:46%;border-left:1px solid var(--line);display:flex;flex-direction:column;background:#fafdff}
 #codepane header{display:flex;gap:8px;padding:12px;border-bottom:1px solid var(--line);align-items:center}
@@ -271,7 +275,7 @@ $("logout").onclick=leave;
 /* ============================================================
    CONVERSAZIONI (salvate per utente nel browser)
    ============================================================ */
-let chats=[], cur=null, codeMode=false;
+let chats=[], cur=null, codeMode=false, waitingChat=null;
 const key=()=>"tink_chats_"+user.id;
 const uid=()=>Math.random().toString(36).slice(2,10);
 
@@ -311,6 +315,11 @@ function renderMsgs(){
     return;
   }
   cur.msgs.forEach(m=>box.appendChild(bubble(m)));
+  if(waitingChat&&cur===waitingChat){      // triangolino che gira mentre l'IA scrive
+    const t=document.createElement("div"); t.className="m a typing";
+    t.innerHTML='<svg class="tri" viewBox="0 0 24 24" width="24" height="24" aria-label="L\'IA sta scrivendo"><polygon points="12,3 22,20 2,20" fill="#2b8de0"/></svg>';
+    box.appendChild(t);
+  }
   box.scrollTop=box.scrollHeight;
 }
 
@@ -357,13 +366,18 @@ async function askAI(){
       ? "Modalità demo. Collega il tuo backend in CONFIG.API_URL. Intanto ecco un esempio:\n```html\n<h1>Ciao dal Code di Xeno!</h1>\n```"
       : "Modalità demo: collega il tuo backend in CONFIG.API_URL per avere risposte vere.";
   }
-  const r=await fetch(CONFIG.API_URL+"/api/chat",{
-    method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},
-    body:JSON.stringify({messages:msgs,files,mode:codeMode?"code":"chat",userId:user.id})
-  });
+  const ctl=new AbortController(), timer=setTimeout(()=>ctl.abort(),100000);   // dopo 100 s smette di aspettare
+  let r;
+  try{
+    r=await fetch(CONFIG.API_URL+"/api/chat",{
+      method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},
+      body:JSON.stringify({messages:msgs,files,mode:codeMode?"code":"chat",userId:user.id}),
+      signal:ctl.signal
+    });
+  } finally { clearTimeout(timer); }
   check401(r);
   if(!r.ok){ let d={}; try{ d=await r.json(); }catch(_){} throw new Error(d.error||"Errore del server ("+r.status+")"); }
-  return (await r.json()).reply;
+  return (await r.json()).reply||"(L'IA non ha risposto, riprova.)";
 }
 
 /* ---------- allegati (foto e PDF) ---------- */
@@ -423,16 +437,21 @@ $("fileIn").onchange=async e=>{
 
 $("form").onsubmit=async e=>{
   e.preventDefault();
+  if(waitingChat) return;                      // aspetta la risposta prima di inviare ancora
   const t=$("input").value.trim(); if(!t&&!pending.length) return;
   $("input").value="";
   const files=pending; pending=[]; renderPending();
-  cur.msgs.push({role:"user",content:t||"Guarda l'allegato.",files});
-  if(cur.msgs.length===1) cur.title=(t||"Allegato").slice(0,40);
+  const chat=cur;
+  chat.msgs.push({role:"user",content:t||"Guarda l'allegato.",files});
+  if(chat.msgs.length===1) chat.title=(t||"Allegato").slice(0,40);
+  waitingChat=chat; $("form").querySelector("button:last-child").disabled=true;
   saveChats(); renderMsgs();
   let reply;
-  try{ reply=await askAI(); }catch(err){ reply="Non riesco a contattare l'IA: "+err.message; }
-  cur.msgs.push({role:"assistant",content:reply});
-  saveChats(); renderMsgs();
+  try{ reply=await askAI(); }
+  catch(err){ reply="Non riesco a contattare l'IA: "+(err.name==="AbortError"?"tempo scaduto, riprova.":err.message); }
+  chat.msgs.push({role:"assistant",content:reply});
+  waitingChat=null; $("form").querySelector("button:last-child").disabled=false;
+  saveChats(); if(cur===chat) renderMsgs();
   if(codeMode) showCode(reply);
 };
 $("input").onkeydown=e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); $("form").requestSubmit(); } };
