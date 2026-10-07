@@ -4,3 +4,4 @@ cryptography
 discord.py
 google-generativeai
 gunicorn
+requests
