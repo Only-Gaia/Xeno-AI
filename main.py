@@ -21,8 +21,8 @@ import discord
 from google import genai
 from google.genai import types
 
-MODEL = (os.environ.get("GEMINI_MODEL") or "gemini-3.8-flash").strip()
-FALLBACKS = ["gemini-2.5-flash", "gemini-2.0-flash"]   # provati solo se il modello principale non esiste
+MODEL = (os.environ.get("GEMINI_MODEL") or "gemini-3.5-flash").strip()
+FALLBACKS = ["gemini-3.1-flash-lite"]   # veloce: provato se il modello principale non risponde
 MIN_AGE, SESSION_DAYS = 14, 30
 OAUTH = {
     "github": {"id": os.environ.get("GITHUB_CLIENT_ID", ""), "secret": os.environ.get("GITHUB_CLIENT_SECRET", "")},
@@ -34,7 +34,7 @@ ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif", "applicati
 
 # ---------- Gemini ----------
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"].strip(),
-                      http_options=types.HttpOptions(timeout=40000))   # 40 s per tentativo
+                      http_options=types.HttpOptions(timeout=25000))   # 25 s per tentativo
 pool = ThreadPoolExecutor(max_workers=8)
 
 def _call(model, contents, system):
@@ -55,15 +55,17 @@ def _try_models(contents, system):
             return _call(mdl, contents, system)
         except Exception as e:
             last = e
-            if not any(k in str(e) for k in ("404", "NOT_FOUND", "INVALID_ARGUMENT")):
-                break          # errore diverso (quota, chiave, timeout): inutile cambiare modello
+            s = str(e).lower()
+            if not any(k in s for k in ("404", "not_found", "invalid_argument", "503", "unavailable",
+                                        "overloaded", "timeout", "timed out", "deadline", "429", "resource_exhausted")):
+                break          # errore diverso (es. chiave sbagliata): inutile cambiare modello
     raise last
 
 def generate(contents, system):
-    """Risposta di Gemini, con limite massimo di 55 secondi (mai appeso all'infinito)."""
+    """Risposta di Gemini, con limite massimo di 62 secondi (mai appeso all'infinito)."""
     fut = pool.submit(_try_models, contents, system)
     try:
-        return fut.result(timeout=55)
+        return fut.result(timeout=62)
     except FTimeout:
         raise TimeoutError("timed out")
 
