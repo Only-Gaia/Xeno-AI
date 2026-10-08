@@ -214,8 +214,14 @@ def chat():
     contents, err = build_contents(d.get("messages"), d.get("files"))
     if err:
         return jsonify(error=err), 400
+    sysm = SYSTEM_CODE if d.get("mode") == "code" else SYSTEM
+    topics = {"developing": "sviluppo e programmazione", "studio": "studio e compiti",
+              "personale": "uso personale", "lavoro": "lavoro"}
+    chosen = [topics[i] for i in (d.get("interests") or []) if i in topics]
+    if chosen:
+        sysm += " L'utente vuole usarti soprattutto per: " + ", ".join(chosen) + "."
     try:
-        return jsonify(reply=generate(contents, SYSTEM_CODE if d.get("mode") == "code" else SYSTEM))
+        return jsonify(reply=generate(contents, sysm))
     except Exception as e:
         traceback.print_exc()
         return jsonify(error=friendly(e)), 500
