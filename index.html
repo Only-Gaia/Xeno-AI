@@ -78,7 +78,7 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
 .plat button:disabled{opacity:.45;cursor:default}
 .out{background:var(--sky);border-radius:12px;padding:12px;font-size:14px;margin-top:12px;word-break:break-all}
 .out a{color:var(--blue);font-weight:600}
-@media(max-width:800px){#app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}aside{flex-direction:row;flex-wrap:wrap;padding:10px}.hist,.me,aside .logo{display:none}#codepane{position:fixed;inset:0;width:100%;z-index:4}}
+@media(max-width:800px){#app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}aside{flex-direction:row;flex-wrap:wrap;padding:10px}.hist,aside .logo{display:none}.me{margin-left:auto}#codepane{position:fixed;inset:0;width:100%;z-index:4}}
 #onboard{min-height:100%;background:#fff;display:flex;flex-direction:column;align-items:center;padding:14vh 22px 240px;text-align:center}
 #obText{max-width:520px}
 .ob-line{font-size:clamp(22px,4.2vw,32px);font-weight:700;margin-bottom:14px;opacity:0;transform:translateY(8px);transition:opacity .5s,transform .5s}
@@ -106,13 +106,14 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
 <section id="auth">
   <div class="card" id="loginCard">
     <div class="logo">Xeno</div>
-    <p class="sub">Accedi o crea il tuo account per iniziare a chattare.</p>
+    <p class="sub" id="authSub">Crea il tuo account per iniziare a chattare.</p>
     <button class="prov" data-p="github">Continua con GitHub</button>
     <div class="or">oppure con la tua email</div>
     <input id="email" type="email" placeholder="Email" autocomplete="email">
     <input id="pass" type="password" placeholder="Password (min. 6 caratteri)" autocomplete="current-password">
-    <button class="main-btn" id="emailGo">Continua</button>
+    <button class="main-btn" id="emailGo">Registrati</button>
     <div class="err" id="err"></div>
+    <button class="link" id="modeSwap">Hai già un account? Accedi</button>
   </div>
   <div class="card hidden" id="profileCard">
     <div class="logo">Xeno</div>
@@ -244,9 +245,12 @@ async function emailAuth(){
   $("emailGo").disabled=true;
   try{
     const r=await api("/api/auth/email",{email,password:pass});
-    if(r.ok&&r.d.need_profile){ pendingEmail={email,password:pass}; pendingSocial=null; $("uname").value=""; show("profile"); }
-    else if(r.ok) startSession(r.d);
-    else showErr(r.d.error||"Errore, riprova.");
+    if(r.ok&&r.d.need_profile){
+      if(loginMode) showErr("Non c'è nessun account con questa email: premi «Registrati».");
+      else { pendingEmail={email,password:pass}; pendingSocial=null; $("uname").value=""; show("profile"); }
+    } else if(r.ok){
+      if(loginMode) startSession(r.d); else showErr("Questa email è già registrata: premi «Accedi».");
+    } else showErr(!loginMode&&/password/i.test(r.d.error||"") ? "Questa email è già registrata: premi «Accedi»." : (r.d.error||"Errore, riprova."));
   }catch(e){ showErr("Backend non raggiungibile, riprova."); }
   finally{ $("emailGo").disabled=false; }
 }
@@ -275,7 +279,7 @@ function leave(){
   localStorage.removeItem("xeno_session");
   $("onlineModal").classList.add("hidden"); $("onboard").classList.add("hidden");
   $("app").classList.add("hidden"); $("auth").classList.remove("hidden");
-  $("pass").value=""; show("login");
+  $("pass").value=""; setMode(false); show("login");
 }
 
 document.querySelectorAll(".prov").forEach(b=>b.onclick=()=>{ location.href=CONFIG.API_URL+"/api/auth/"+b.dataset.p+"/start"; });
@@ -600,6 +604,16 @@ $("obGo").onclick=async()=>{
   if(!session) return;                       // se nel frattempo è uscito, non lo faccio entrare
   $("onboard").classList.add("hidden"); justOnboarded=true; enter(u);
 };
+
+/* ---------- Registrati / Accedi ---------- */
+let loginMode=false;
+function setMode(l){
+  loginMode=l; showErr("");
+  $("authSub").textContent=l?"Bentornato! Accedi al tuo account.":"Crea il tuo account per iniziare a chattare.";
+  $("emailGo").textContent=l?"Accedi":"Registrati";
+  $("modeSwap").textContent=l?"Non hai un account? Registrati":"Hai già un account? Accedi";
+}
+$("modeSwap").onclick=()=>setMode(!loginMode);
 
 initAuth();
 </script>
