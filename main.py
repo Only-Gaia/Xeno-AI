@@ -6,7 +6,7 @@ Comando di avvio consigliato su Render (UNA sola copia, altrimenti i bot Discord
   gunicorn main:app --workers 1 --threads 8 --timeout 120
 Test dell'IA: apri  https://IL-TUO-SITO.onrender.com/api/ai-test
 """
-import os, asyncio, threading, time, sqlite3, base64, hashlib, re, secrets, traceback
+import json, os, asyncio, threading, time, sqlite3, base64, hashlib, re, secrets, traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FTimeout
 from contextlib import contextmanager
 from urllib.parse import urlencode, quote
@@ -173,6 +173,9 @@ with db() as c:
         username TEXT UNIQUE COLLATE NOCASE, age INTEGER, pw_hash TEXT,
         provider TEXT, provider_id TEXT, created INTEGER)""")
     c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_social ON users(provider, provider_id)")
+    c.execute("""CREATE TABLE IF NOT EXISTS chats(
+        user_id TEXT, chat_id TEXT, title TEXT, data TEXT, updated INTEGER,
+        PRIMARY KEY(user_id, chat_id))""")
 
 def save_bot(user_id, token, prefix):
     with db_lock, db() as c:
@@ -227,6 +230,48 @@ def chat():
     except Exception as e:
         traceback.print_exc()
         return jsonify(error=friendly(e)), 500
+
+# ---------- conversazioni: ognuno vede SOLO le sue (l'id utente viene dal login, mai dalla richiesta) ----------
+@app.get("/api/chats")
+def chats_list():
+    uid = current_user()
+    if not uid:
+        return need_login()
+    with db_lock, db() as c:
+        rows = c.execute("SELECT chat_id,title,data FROM chats WHERE user_id=? ORDER BY updated DESC LIMIT 200",
+                         (uid,)).fetchall()
+    return jsonify(chats=[{"id": r["chat_id"], "title": r["title"], "msgs": json.loads(r["data"])} for r in rows])
+
+@app.put("/api/chats/<cid>")
+def chats_put(cid):
+    uid = current_user()
+    if not uid:
+        return need_login()
+    d = body()
+    msgs = d.get("msgs")
+    if not isinstance(msgs, list) or not re.match(r"^[A-Za-z0-9_-]{1,40}$", cid):
+        return jsonify(error="Dati non validi."), 400
+    clean = []
+    for x in msgs[-200:]:
+        if isinstance(x, dict):
+            item = {"role": "user" if x.get("role") == "user" else "assistant",
+                    "content": str(x.get("content", ""))[:20000]}
+            if x.get("nfiles"):
+                item["nfiles"] = int(x["nfiles"])
+            clean.append(item)
+    with db_lock, db() as c:
+        c.execute("REPLACE INTO chats VALUES(?,?,?,?,?)",
+                  (uid, cid, str(d.get("title", ""))[:80], json.dumps(clean), int(time.time())))
+    return jsonify(ok=True)
+
+@app.delete("/api/chats/<cid>")
+def chats_del(cid):
+    uid = current_user()
+    if not uid:
+        return need_login()
+    with db_lock, db() as c:
+        c.execute("DELETE FROM chats WHERE user_id=? AND chat_id=?", (uid, cid))
+    return jsonify(ok=True)
 
 @app.get("/api/ai-test")
 def ai_test():
