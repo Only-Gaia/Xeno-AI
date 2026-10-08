@@ -79,6 +79,26 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
 .out{background:var(--sky);border-radius:12px;padding:12px;font-size:14px;margin-top:12px;word-break:break-all}
 .out a{color:var(--blue);font-weight:600}
 @media(max-width:800px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}aside{flex-direction:row;flex-wrap:wrap;padding:10px}.hist,.me,aside .logo{display:none}#codepane{position:fixed;inset:0;width:100%;z-index:4}}
+#onboard{min-height:100%;background:#fff;display:flex;flex-direction:column;align-items:center;padding:14vh 22px 240px;text-align:center}
+#obText{max-width:520px}
+.ob-line{font-size:clamp(22px,4.2vw,32px);font-weight:700;margin-bottom:14px;opacity:0;transform:translateY(8px);transition:opacity .5s,transform .5s}
+.ob-line.in{opacity:1;transform:none}
+.ob-line span{color:var(--blue)}
+#obOpts{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;max-width:520px;margin-top:6px}
+.opt{padding:12px 20px;border-radius:999px;background:var(--sky);border:2px solid transparent;font-weight:700}
+.opt.on{background:var(--blue);color:#fff}
+#obGo{max-width:260px;margin-top:8px}
+#robot{position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:min(260px,60vw);pointer-events:none;animation:rise .9s cubic-bezier(.2,.9,.3,1.2) both}
+@keyframes rise{from{transform:translate(-50%,100%)}}
+#robot svg,.mini svg{display:block;width:100%}
+.mini{width:130px;margin:0 auto 10px}
+.bob{animation:bob 3s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(-6px)}}
+.eyes{transform-box:fill-box;transform-origin:center;animation:blink 4.5s infinite}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
+.ant{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{fill:#cdeaff}}
+@media(prefers-reduced-motion:reduce){#robot,.bob,.eyes,.ant{animation:none}}
 </style>
 </head>
 <body>
@@ -103,6 +123,18 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
     <div class="err" id="err2"></div>
     <button class="link" id="profileBack">Indietro</button>
   </div>
+</section>
+
+<section id="onboard" class="hidden">
+  <div id="obText" aria-live="polite"></div>
+  <div id="obOpts" class="hidden">
+    <button class="opt" data-v="developing">Developing</button>
+    <button class="opt" data-v="studio">Studio</button>
+    <button class="opt" data-v="personale">Uso personale</button>
+    <button class="opt" data-v="lavoro">Lavoro</button>
+    <button class="main-btn" id="obGo" disabled>Continua</button>
+  </div>
+  <div id="robot"></div>
 </section>
 
 <div id="app" class="hidden">
@@ -225,14 +257,15 @@ async function profileGo(){
   const body=pendingSocial?{pending:pendingSocial,username,age}:{...pendingEmail,username,age};
   try{
     const r=await api(pendingSocial?"/api/auth/complete":"/api/auth/register",body);
-    if(r.ok) startSession(r.d); else showErr(r.d.error||"Errore, riprova.","err2");
+    if(r.ok) startSession(r.d,true); else showErr(r.d.error||"Errore, riprova.","err2");
   }catch(e){ showErr("Backend non raggiungibile, riprova.","err2"); }
 }
 
-function startSession(d){ session=d.token; localStorage.setItem("xeno_session",session); enter(d.user); }
+function startSession(d,isNew){ session=d.token; localStorage.setItem("xeno_session",session); if(isNew) startOnboarding(d.user); else enter(d.user); }
 
 function enter(u){
   user=u;
+  try{ interests=JSON.parse(localStorage.getItem("xeno_interests_"+u.id)||"[]"); }catch(e){ interests=[]; }
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("who").textContent=u.username;
   loadChats(); newConversation(true);
@@ -240,7 +273,7 @@ function enter(u){
 function leave(){
   user=null; session=null; pendingEmail=null; pendingSocial=null; waitingChat=null;
   localStorage.removeItem("xeno_session");
-  $("onlineModal").classList.add("hidden");
+  $("onlineModal").classList.add("hidden"); $("onboard").classList.add("hidden");
   $("app").classList.add("hidden"); $("auth").classList.remove("hidden");
   $("pass").value=""; show("login");
 }
@@ -309,7 +342,7 @@ function renderList(){
 function renderMsgs(){
   const box=$("msgs"); box.innerHTML="";
   if(!cur.msgs.length){
-    box.innerHTML='<div class="empty"><b>Come posso aiutarti?</b>Scrivi un messaggio per iniziare.</div>';
+    box.innerHTML='<div class="empty">'+(justOnboarded?'<div class="mini">'+ROBOT+'</div>':'')+'<b>'+(justOnboarded?'Chiedimi tutto!':'Come posso aiutarti?')+'</b>Scrivi un messaggio per iniziare.</div>';
     return;
   }
   cur.msgs.forEach(m=>box.appendChild(bubble(m)));
@@ -355,7 +388,7 @@ async function askAI(chat){
   try{
     r=await fetch(CONFIG.API_URL+"/api/chat",{
       method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},
-      body:JSON.stringify({messages:msgs,files,mode:codeMode?"code":"chat"}),
+      body:JSON.stringify({messages:msgs,files,mode:codeMode?"code":"chat",interests}),
       signal:ctl.signal
     });
     check401(r);
@@ -421,7 +454,7 @@ $("form").onsubmit=async e=>{
   const t=$("input").value.trim(); if(!t&&!pending.length) return;
   $("input").value="";
   const files=pending; pending=[]; renderPending();
-  const chat=cur;
+  const chat=cur; justOnboarded=false;
   chat.msgs.push({role:"user",content:t||"Guarda l'allegato.",files});
   if(chat.msgs.length===1) chat.title=(t||"Allegato").slice(0,40);
   waitingChat=chat; $("send").disabled=true;
@@ -522,6 +555,50 @@ $("publish").onclick=async()=>{
       ?"Non riesco a raggiungere il backend: controlla che sia acceso."
       :"Non è stato possibile andare online: "+e.message;
   }finally{ btn.disabled=false; btn.textContent="Metti online"; }
+};
+
+/* ---------- benvenuto con il robottino (dopo la registrazione) ---------- */
+let justOnboarded=false, interests=[], obUser=null;
+const ROBOT=`<svg viewBox="0 0 200 150" aria-hidden="true"><g class="bob">
+<line x1="100" y1="20" x2="100" y2="38" stroke="#5fb3f0" stroke-width="5" stroke-linecap="round"/>
+<circle class="ant" cx="100" cy="14" r="8" fill="#9bd3fa"/>
+<rect x="26" y="74" width="16" height="36" rx="8" fill="#5fb3f0"/><rect x="158" y="74" width="16" height="36" rx="8" fill="#5fb3f0"/>
+<rect x="38" y="36" width="124" height="140" rx="48" fill="#7cc4f5"/>
+<rect x="54" y="58" width="92" height="62" rx="26" fill="#eaf6ff"/>
+<g class="eyes"><ellipse cx="80" cy="88" rx="9" ry="12" fill="#16324a"/><ellipse cx="120" cy="88" rx="9" ry="12" fill="#16324a"/>
+<circle cx="83" cy="83" r="3" fill="#fff"/><circle cx="123" cy="83" r="3" fill="#fff"/></g>
+<path d="M90 106 Q100 114 110 106" stroke="#16324a" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+</g></svg>`;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const calm=matchMedia("(prefers-reduced-motion: reduce)").matches?0:1;
+function obLine(html){
+  const p=document.createElement("p"); p.className="ob-line"; p.innerHTML=html;
+  $("obText").appendChild(p); requestAnimationFrame(()=>requestAnimationFrame(()=>p.classList.add("in")));
+}
+async function startOnboarding(u){
+  obUser=u;
+  $("auth").classList.add("hidden"); $("onboard").classList.remove("hidden");
+  $("obText").innerHTML=""; $("obOpts").classList.add("hidden");
+  document.querySelectorAll(".opt").forEach(b=>b.classList.remove("on")); $("obGo").disabled=true;
+  $("robot").innerHTML=ROBOT;
+  await sleep(700*calm);   obLine('Ciao! Sono <span>Xeno!</span>');
+  await sleep(1700*calm);  obLine('Sono qui per aiutarti e farti divertire!');
+  await sleep(1900*calm);  obLine('Prima di tutto, dimmi cosa vuoi fare con me:');
+  await sleep(900*calm);   $("obOpts").classList.remove("hidden");
+}
+document.querySelectorAll(".opt").forEach(b=>b.onclick=()=>{
+  b.classList.toggle("on");
+  $("obGo").disabled=!document.querySelector(".opt.on");
+});
+$("obGo").onclick=async()=>{
+  const u=obUser; if(!u) return;
+  interests=[...document.querySelectorAll(".opt.on")].map(b=>b.dataset.v);
+  try{ localStorage.setItem("xeno_interests_"+u.id,JSON.stringify(interests)); }catch(e){}
+  $("obOpts").classList.add("hidden"); $("obText").innerHTML="";
+  obLine("Magnifico! Ti aiuterò nelle categorie che hai scelto!");
+  await sleep(2300*calm);
+  if(!session) return;                       // se nel frattempo è uscito, non lo faccio entrare
+  $("onboard").classList.add("hidden"); justOnboarded=true; enter(u);
 };
 
 initAuth();
