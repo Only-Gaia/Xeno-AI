@@ -276,6 +276,7 @@ function enter(u){
 }
 function leave(){
   user=null; session=null; pendingEmail=null; pendingSocial=null; waitingChat=null;
+  chats=[]; cur=null; $("msgs").innerHTML=""; $("list").innerHTML="";   // niente resta a schermo o in memoria
   localStorage.removeItem("xeno_session");
   $("onlineModal").classList.add("hidden"); $("onboard").classList.add("hidden");
   $("app").classList.add("hidden"); $("auth").classList.remove("hidden");
@@ -288,16 +289,37 @@ $("pass").onkeydown=e=>{ if(e.key==="Enter") emailAuth(); };
 $("profileGo").onclick=profileGo;
 $("age").onkeydown=$("uname").onkeydown=e=>{ if(e.key==="Enter") profileGo(); };
 $("profileBack").onclick=()=>{ pendingEmail=null; pendingSocial=null; show("login"); };
-$("logout").onclick=leave;
+$("logout").onclick=()=>{ try{ localStorage.removeItem(key()); }catch(e){} leave(); };   // esci: cancello anche la copia nel browser
 
 /* ---------- conversazioni ---------- */
 let chats=[], cur=null, codeMode=false, waitingChat=null;
 const key=()=>"tink_chats_"+user.id;
 const uid=()=>Math.random().toString(36).slice(2,10);
 
-function loadChats(){
+function pushChat(c){          // salva la conversazione sul server, legata al tuo account
+  if(!session||!c.msgs.length) return;
+  const msgs=c.msgs.map(m=>({role:m.role,content:m.content,nfiles:(m.files&&m.files.length)||m.nfiles||0}));
+  fetch(CONFIG.API_URL+"/api/chats/"+c.id,{method:"PUT",
+    headers:{"Content-Type":"application/json",Authorization:"Bearer "+session},
+    body:JSON.stringify({title:c.title,msgs})}).catch(()=>{});
+}
+async function loadChats(){
   try{ chats=JSON.parse(localStorage.getItem(key())||"[]"); }catch(e){ chats=[]; }
   renderList();
+  try{
+    const r=await api("/api/chats");
+    if(!r.ok||!user) return;
+    const srv=r.d.chats||[], ids=new Set(srv.map(s=>s.id)), merged=[...srv];
+    chats.forEach(c=>{            // chat già nel browser: le porto sul server la prima volta
+      const isNew=c.msgs.length&&!ids.has(c.id);
+      if(c===cur||isNew){
+        const i=merged.findIndex(x=>x.id===c.id);
+        if(i<0) merged.unshift(c); else merged[i]=c;
+        if(isNew) pushChat(c);
+      }
+    });
+    chats=merged; renderList();
+  }catch(e){}
 }
 function saveChats(){
   if(!user) return;
@@ -319,6 +341,7 @@ function newConversation(first){
 let pressTimer=null, longPressed=false;
 function deleteChat(c){
   if(!confirm("Eliminare la conversazione «"+c.title+"»?")) return;
+  if(session) fetch(CONFIG.API_URL+"/api/chats/"+c.id,{method:"DELETE",headers:{Authorization:"Bearer "+session}}).catch(()=>{});
   chats=chats.filter(x=>x!==c);
   if(cur===c) newConversation(false);
   saveChats(); renderMsgs();
@@ -471,7 +494,7 @@ $("form").onsubmit=async e=>{
   waitingChat=null; $("send").disabled=false;     // il triangolo si ferma sempre
   if(!user) return;                                // sessione scaduta nel frattempo
   chat.msgs.push({role:"assistant",content:reply});
-  saveChats(); if(cur===chat) renderMsgs();
+  saveChats(); pushChat(chat); if(cur===chat) renderMsgs();
   if(codeMode) showCode(reply);
 };
 $("input").onkeydown=e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); $("form").requestSubmit(); } };
