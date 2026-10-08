@@ -26,7 +26,7 @@ input,textarea{font:inherit;width:100%;padding:12px;border:1px solid var(--line)
 .main-btn:disabled{opacity:.6}
 .link{background:none;color:var(--blue);margin-top:12px;width:100%;font-size:14px}
 .err{color:#c0392b;font-size:14px;min-height:20px;margin-top:6px}
-#app{height:100%;display:grid;grid-template-columns:270px 1fr}
+#app{position:fixed;inset:0;display:grid;grid-template-columns:270px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
 aside{background:var(--sky);border-right:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:8px;overflow:auto}
 aside .logo{margin-bottom:8px}
 .nav{padding:12px;border-radius:12px;background:var(--white);border:1px solid var(--line);text-align:left;font-weight:600}
@@ -39,9 +39,9 @@ aside .logo{margin-bottom:8px}
 .chat-item:hover{background:#ffffffaa}.chat-item.on{background:var(--white)}
 .me{font-size:13px;color:var(--mute);display:flex;justify-content:space-between;align-items:center;gap:8px}
 .me button{background:none;color:var(--blue);font-size:13px}
-main{display:flex;min-width:0;height:100%}
-.col{flex:1;display:flex;flex-direction:column;min-width:0}
-#msgs{flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:14px}
+main{display:flex;min-width:0;min-height:0;height:100%}
+.col{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+#msgs{flex:1;min-height:0;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:14px}
 .m{max-width:760px;padding:12px 16px;border-radius:16px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
 .m.u{align-self:flex-end;background:var(--blue);color:#fff}
 .m.a{align-self:flex-start;background:var(--sky)}
@@ -78,7 +78,7 @@ form.bar #attach{background:var(--sky);color:var(--ink);padding:0 14px;font-size
 .plat button:disabled{opacity:.45;cursor:default}
 .out{background:var(--sky);border-radius:12px;padding:12px;font-size:14px;margin-top:12px;word-break:break-all}
 .out a{color:var(--blue);font-weight:600}
-@media(max-width:800px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}aside{flex-direction:row;flex-wrap:wrap;padding:10px}.hist,.me,aside .logo{display:none}#codepane{position:fixed;inset:0;width:100%;z-index:4}}
+@media(max-width:800px){#app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}aside{flex-direction:row;flex-wrap:wrap;padding:10px}.hist,.me,aside .logo{display:none}#codepane{position:fixed;inset:0;width:100%;z-index:4}}
 #onboard{min-height:100%;background:#fff;display:flex;flex-direction:column;align-items:center;padding:14vh 22px 240px;text-align:center}
 #obText{max-width:520px}
 .ob-line{font-size:clamp(22px,4.2vw,32px);font-weight:700;margin-bottom:14px;opacity:0;transform:translateY(8px);transition:opacity .5s,transform .5s}
